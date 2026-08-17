@@ -14,10 +14,10 @@ import logging
 import boto3
 
 from . import s3_utils
-from .config import load_settings
+from .config import Settings, load_settings
 from .contract import load_contract, load_unitary_endpoint
 from .parquet_io import write_hive_parquet
-from .security import EncryptionService, NoOpEncryptionService
+from .security import NoOpEncryptionService
 from .step_function import build_step_function_payload
 from .transform import build_dataframe
 
@@ -25,17 +25,23 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def _build_encryption_service(contract, kms_client):
-    encryption_cfg = contract.encryption
-    if not encryption_cfg.get("enabled"):
+def _build_encryption_service(contract, settings: Settings):
+    # Encryption is skipped for now -- sensitive columns are written as
+    # plaintext (hashing still applies). Set ENABLE_ENCRYPTION=true once
+    # KMS/cryptography wiring is ready; only then does `security.py`'s
+    # cryptography-based EncryptionService get imported and used.
+    if not settings.enable_encryption or not contract.encryption.get("enabled"):
         return NoOpEncryptionService()
-    return EncryptionService(kms_client, encryption_cfg["kms_key_alias"])
+
+    from .security import EncryptionService
+
+    kms_client = boto3.client("kms")
+    return EncryptionService(kms_client, contract.encryption["kms_key_alias"])
 
 
 def lambda_handler(event, context):
     settings = load_settings()
     s3_client = boto3.client("s3")
-    kms_client = boto3.client("kms")
 
     contract = load_contract(s3_client, settings)
 
@@ -52,7 +58,7 @@ def lambda_handler(event, context):
 
     records = [s3_utils.read_json(s3_client, source_bucket, key) for key in source_keys]
 
-    encryption_service = _build_encryption_service(contract, kms_client)
+    encryption_service = _build_encryption_service(contract, settings)
     df, conversation_ids = build_dataframe(records, contract, encryption_service)
 
     output_bucket = settings.resolve_bucket(contract.output_bucket_logical)

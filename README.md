@@ -31,12 +31,15 @@ survey API for every conversation in the batch.
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
    `timestamp`/`json`), then applies `transformations` (trim, uppercase,
    remove_accents) in the order they appear in the contract.
-4. Applies `encryption`/`hash` per contract: columns marked `hash: true` get
-   a `<name>_hash` (SHA-256) column; columns marked `encrypt: true` are
-   AES-GCM encrypted with a KMS-generated data key (one data key per
-   invocation, reused across rows; the wrapped/encrypted copy of that key is
-   stored per-row in `<name>_edk` so any row is independently decryptable
-   later). The plaintext value is never written to the output.
+4. Applies `hash` per contract: columns marked `hash: true` get a
+   `<name>_hash` (SHA-256) column. **Encryption is skipped for now** --
+   columns marked `encrypt: true` are written as plaintext (the `<name>_edk`
+   column comes back `null`). The KMS/AES-GCM envelope-encryption path
+   (`security.EncryptionService`) is implemented and unit-tested, but the
+   handler defaults to a pass-through `NoOpEncryptionService` and never
+   imports `cryptography` unless `ENABLE_ENCRYPTION=true` is set -- flip that
+   env var (and give the function's role `kms:GenerateDataKey`/`kms:Decrypt`,
+   already in `template.yaml`) once that's ready to turn on.
 5. Deduplicates per `deduplication` (drops repeated `interaccion_id`,
    keeping the row with the latest `interaccion_fecha_fin`).
 6. Writes the result as Hive-partitioned parquet
@@ -93,6 +96,7 @@ template.yaml         # AWS SAM deployment definition
 | `RESOURCES_BUCKET` | `${ENV_PREFIX}resources` | Where the contract and Genesys API params live. |
 | `CONTRACT_KEY` | `contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json` | Contract object key. |
 | `CORE_CONFIG_KEY` | `params/genesys/api/core.json` | Resolved to find the `unitary.json` path. |
+| `ENABLE_ENCRYPTION` | `false` | When `false` (default), sensitive columns are written as plaintext and `cryptography` is never imported. Set `true` to turn on the KMS/AES-GCM envelope encryption path. |
 
 ## Running the tests
 

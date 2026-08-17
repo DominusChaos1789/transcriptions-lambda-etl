@@ -13,13 +13,17 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 
 def hash_value(value: str) -> str:
     import hashlib
 
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _aesgcm_cls():
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    return AESGCM
 
 
 @dataclass
@@ -30,7 +34,13 @@ class DataKey:
 
 
 class EncryptionService:
-    """Wraps a single KMS data key for the lifetime of one batch run."""
+    """Wraps a single KMS data key for the lifetime of one batch run.
+
+    `cryptography` is only imported when this class is actually
+    instantiated/used -- encryption is currently skipped by default
+    (see handler._build_encryption_service), so plain hashing-only runs
+    never touch it.
+    """
 
     def __init__(self, kms_client, key_alias: str):
         self._kms = kms_client
@@ -50,7 +60,7 @@ class EncryptionService:
     def encrypt(self, plaintext_value: str, aad: str) -> dict:
         """Returns {"ciphertext": <b64 nonce+ct>, "encrypted_data_key": <b64>}."""
         key = self._ensure_data_key()
-        aesgcm = AESGCM(key.plaintext)
+        aesgcm = _aesgcm_cls()(key.plaintext)
         nonce = os.urandom(12)
         ct = aesgcm.encrypt(nonce, plaintext_value.encode("utf-8"), aad.encode("utf-8"))
         return {
@@ -61,7 +71,7 @@ class EncryptionService:
     def decrypt(self, envelope: dict, aad: str) -> str:
         encrypted_data_key = base64.b64decode(envelope["encrypted_data_key"])
         plaintext_key = self._kms.decrypt(CiphertextBlob=encrypted_data_key)["Plaintext"]
-        aesgcm = AESGCM(plaintext_key)
+        aesgcm = _aesgcm_cls()(plaintext_key)
         raw = base64.b64decode(envelope["ciphertext"])
         nonce, ct = raw[:12], raw[12:]
         return aesgcm.decrypt(nonce, ct, aad.encode("utf-8")).decode("utf-8")

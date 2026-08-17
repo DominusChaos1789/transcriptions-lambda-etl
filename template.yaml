@@ -12,6 +12,11 @@ Parameters:
     Type: String
     Default: augusta-nexa-dev-
     Description: Prefix applied to the contract's logical bucket names (providers-landing, refined, resources).
+  EnableEncryption:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Column-level KMS/AES-GCM encryption is skipped for now; set to "true" once that wiring is ready (hashing runs either way).
 
 Globals:
   Function:
@@ -35,6 +40,7 @@ Resources:
           RESOURCES_BUCKET: !Sub "${EnvPrefix}resources"
           CONTRACT_KEY: contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json
           CORE_CONFIG_KEY: params/genesys/api/core.json
+          ENABLE_ENCRYPTION: !Ref EnableEncryption
       Policies:
         - Statement:
             - Sid: ReadLandingAndResources
@@ -59,6 +65,8 @@ Resources:
                 - s3:PutObject
               Resource:
                 - !Sub "arn:aws:s3:::${EnvPrefix}refined/*"
+            # Unused while EnableEncryption is "false" (the default) -- kept
+            # so flipping the flag doesn't also require a redeploy for IAM.
             - Sid: UseDataSensitiveKey
               Effect: Allow
               Action:
