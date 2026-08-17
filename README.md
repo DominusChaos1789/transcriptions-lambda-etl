@@ -85,7 +85,7 @@ src/
   transform.py                  # record -> row mapping, transformations, dedup
   parquet_io.py                  # DataFrame -> Hive-partitioned parquet on S3
   step_function.py                 # conversation ids -> Step Function payload
-tests/
+test/
   fixtures/            # copies of the provided contract/config/sample files
   test_*.py            # pytest unit tests (moto-mocked S3/KMS, no real AWS calls)
 template.yaml         # AWS SAM deployment definition
@@ -116,6 +116,13 @@ transformation order (trim -> uppercase -> remove_accents), hashing,
 encrypt/decrypt round-trips (including the `mensajes` JSON column),
 deduplication, S3 list/read/delete, Step Function URL templating, and a
 full end-to-end `main.handler` run against seeded fixture files.
+
+## Formatting & linting
+
+```bash
+.venv/Scripts/python -m black src/ test/     # format
+.venv/Scripts/python -m flake8 src/ test/    # lint (line length/config in .flake8)
+```
 
 ## Deploying
 

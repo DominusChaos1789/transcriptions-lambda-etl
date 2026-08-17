@@ -1,6 +1,7 @@
 """Thin S3 helpers: list/read/delete JSON objects, write a Hive-partitioned
 parquet dataset. Kept separate from business logic so they're easy to mock
 in unit tests."""
+
 import json
 import logging
 from typing import Any, Iterable

@@ -6,7 +6,7 @@ import pytest
 from contract import Contract
 from security import EncryptionService, hash_value
 from transform import build_dataframe
-from tests.conftest import load_fixture
+from test.conftest import load_fixture
 
 
 class FakeKmsClient:

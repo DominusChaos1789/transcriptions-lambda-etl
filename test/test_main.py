@@ -5,7 +5,7 @@ import pyarrow.parquet as pq
 
 import s3_utils
 from main import handler
-from tests.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
+from test.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
 
 
 def test_lambda_handler_end_to_end(aws, seeded_source_files):
@@ -24,7 +24,9 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
     # Parquet was written Hive-partitioned by cliente_prefijo/operacion_prefijo.
     assert len(result["output_keys"]) >= 1
     for key in result["output_keys"]:
-        assert key.startswith("transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/")
+        assert key.startswith(
+            "transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/"
+        )
         assert key.endswith(".parquet")
 
     total_rows = 0

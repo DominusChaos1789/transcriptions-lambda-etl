@@ -2,9 +2,10 @@
 the contract's target schema: rename via `columns`, stamp constants, apply
 `transformations`, hash/encrypt sensitive fields, and hand back the parquet-
 ready rows plus the list of conversation ids seen in this batch."""
+
 import json
 import unicodedata
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 

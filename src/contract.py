@@ -1,6 +1,7 @@
 """Loads the data contract (bdo_sac_structure.json) that drives the whole
 ETL: which bucket/prefix to read from, how to rename columns, and where the
 resulting parquet table gets written."""
+
 from dataclasses import dataclass
 from typing import Any
 

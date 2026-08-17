@@ -5,6 +5,7 @@
 Implemented directly with pyarrow + boto3 (no s3fs/awswrangler dependency)
 so it works the same against moto in tests as it does against real S3.
 """
+
 import io
 import uuid
 from typing import Optional
@@ -32,9 +33,7 @@ def write_hive_parquet(
     for group_values, group_df in df.groupby(partition_cols, dropna=False):
         if not isinstance(group_values, tuple):
             group_values = (group_values,)
-        partition_path = "/".join(
-            f"{col}={value}" for col, value in zip(partition_cols, group_values)
-        )
+        partition_path = "/".join(f"{col}={value}" for col, value in zip(partition_cols, group_values))
         data_df = group_df.drop(columns=partition_cols)
         key = _write_partition(s3_client, data_df, bucket, f"{prefix}/{partition_path}")
         written_keys.append(key)

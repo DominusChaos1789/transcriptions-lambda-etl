@@ -9,6 +9,7 @@
 5. Resolves the Genesys "conversation surveys" unitary endpoint and builds
    the per-conversation payload a Step Function uses to call it.
 """
+
 import logging
 
 import boto3
@@ -47,7 +48,9 @@ def handler(event, context):
 
     source_bucket = settings.resolve_bucket(contract.source_bucket_logical)
     source_keys = s3_utils.list_json_keys(s3_client, source_bucket, contract.source_prefix)
-    logger.info("Found %d json files under s3://%s/%s", len(source_keys), source_bucket, contract.source_prefix)
+    logger.info(
+        "Found %d json files under s3://%s/%s", len(source_keys), source_bucket, contract.source_prefix
+    )
 
     if not source_keys:
         return {
@@ -69,7 +72,9 @@ def handler(event, context):
         contract.output_prefix,
         partition_cols=contract.partition_by,
     )
-    logger.info("Wrote %d parquet object(s) to s3://%s/%s", len(written_keys), output_bucket, contract.output_prefix)
+    logger.info(
+        "Wrote %d parquet object(s) to s3://%s/%s", len(written_keys), output_bucket, contract.output_prefix
+    )
 
     deleted_keys = s3_utils.delete_objects(s3_client, source_bucket, source_keys)
     logger.info("Deleted %d source object(s) from s3://%s", len(deleted_keys), source_bucket)

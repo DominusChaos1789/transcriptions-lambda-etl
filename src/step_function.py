@@ -5,6 +5,7 @@ Resolution path: params/genesys/api/core.json -> "unitary" entry -> that
 file's own content (e.g. params/genesys/api/unitary.json), which holds the
 "{conversationId}" URL template this module fills in per conversation.
 """
+
 from typing import Any
 
 

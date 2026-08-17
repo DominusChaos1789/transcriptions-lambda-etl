@@ -1,4 +1,5 @@
 """Environment-driven configuration for the BDO transcripciones ETL Lambda."""
+
 import os
 from dataclasses import dataclass
 
@@ -27,16 +28,12 @@ class Settings:
 
 def load_settings() -> Settings:
     env_prefix = os.environ.get("ENV_PREFIX", "augusta-nexa-dev-")
-    resources_bucket = os.environ.get(
-        "RESOURCES_BUCKET", f"{env_prefix}resources"
-    )
+    resources_bucket = os.environ.get("RESOURCES_BUCKET", f"{env_prefix}resources")
     contract_key = os.environ.get(
         "CONTRACT_KEY",
         "contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json",
     )
-    core_config_key = os.environ.get(
-        "CORE_CONFIG_KEY", "params/genesys/api/core.json"
-    )
+    core_config_key = os.environ.get("CORE_CONFIG_KEY", "params/genesys/api/core.json")
     enable_encryption = os.environ.get("ENABLE_ENCRYPTION", "false").strip().lower() in (
         "1",
         "true",

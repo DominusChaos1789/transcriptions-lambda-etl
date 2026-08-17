@@ -8,6 +8,7 @@ that data key is stored alongside each value so any row can be decrypted
 independently later using only the KMS key, without needing the batch's
 other rows.
 """
+
 import base64
 import os
 from dataclasses import dataclass

@@ -1,5 +1,5 @@
 from step_function import build_step_function_payload
-from tests.conftest import load_fixture
+from test.conftest import load_fixture
 
 
 def test_build_step_function_payload_replaces_conversation_id():
@@ -14,10 +14,7 @@ def test_build_step_function_payload_replaces_conversation_id():
     first = payload["conversations"][0]
     assert first["conversation_id"] == conversation_ids[0]
     assert first["endpoint"] == "conversations_surveys"
-    assert (
-        first["request_context"]["url"]
-        == f"/api/v2/quality/conversations/{conversation_ids[0]}/surveys"
-    )
+    assert first["request_context"]["url"] == f"/api/v2/quality/conversations/{conversation_ids[0]}/surveys"
     assert first["request_context"]["method"] == "GET"
     assert first["request_context"]["result_data"] == "state"
     assert "{conversationId}" not in first["request_context"]["url"]
