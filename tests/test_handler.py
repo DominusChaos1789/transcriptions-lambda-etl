@@ -1,0 +1,58 @@
+import io
+
+import pyarrow.parquet as pq
+
+from bdo_transcripciones_etl import s3_utils
+from bdo_transcripciones_etl.handler import lambda_handler
+from tests.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
+
+
+def test_lambda_handler_end_to_end(aws, seeded_source_files):
+    s3 = aws["s3"]
+
+    result = lambda_handler({}, None)
+
+    assert result["processed_files"] == 2
+    assert result["deleted_source_files"] == 2
+    assert result["output_bucket"] == REFINED_BUCKET
+
+    # Source objects are cleaned up after a successful load.
+    remaining = s3_utils.list_json_keys(s3, LANDING_BUCKET, SOURCE_PREFIX)
+    assert remaining == []
+
+    # Parquet was written Hive-partitioned by cliente_prefijo/operacion_prefijo.
+    assert len(result["output_keys"]) >= 1
+    for key in result["output_keys"]:
+        assert key.startswith("transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/")
+        assert key.endswith(".parquet")
+
+    total_rows = 0
+    for key in result["output_keys"]:
+        body = s3.get_object(Bucket=REFINED_BUCKET, Key=key)["Body"].read()
+        table = pq.read_table(io.BytesIO(body))
+        total_rows += table.num_rows
+        columns = table.column_names
+        # Partition columns are encoded in the path, not duplicated in the file.
+        assert "cliente_prefijo" not in columns
+        assert "operacion_prefijo" not in columns
+        assert "consumidor_id_hash" in columns
+        assert "conversacion_id" in columns
+    assert total_rows == 2
+
+    # Step function payload covers both conversations found in this batch.
+    assert sorted(result["conversation_ids"]) == sorted(
+        ["2a0db425-2370-4786-be61-1a9ee8e89855", "7b1fa3c2-91aa-4e2b-9d3a-0b2f6a7c1234"]
+    )
+    assert len(result["conversations"]) == 2
+    for conversation in result["conversations"]:
+        assert conversation["conversation_id"] in result["conversation_ids"]
+        assert conversation["request_context"]["url"].endswith("/surveys")
+        assert "{conversationId}" not in conversation["request_context"]["url"]
+
+
+def test_lambda_handler_no_source_files_is_a_noop(aws):
+    result = lambda_handler({}, None)
+
+    assert result["processed_files"] == 0
+    assert result["conversation_ids"] == []
+    assert result["conversations"] == []

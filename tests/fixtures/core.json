@@ -1,0 +1,18 @@
+{
+  "daily": [
+    "params/genesys/api/jobs.json",
+    "params/genesys/api/download.json"
+  ],
+  "ondemand": [
+    "params/genesys/api/upload.json"
+  ],
+  "status": [
+    "params/genesys/api/status.json"
+  ],
+  "actions": [
+    "params/genesys/api/actions.json"
+  ],
+  "unitary": [
+    "params/genesys/api/unitary.json"
+  ]
+}

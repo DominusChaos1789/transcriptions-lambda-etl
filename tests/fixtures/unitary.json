@@ -1,0 +1,9 @@
+{
+  "conversations_surveys": {
+    "url": "/api/v2/quality/conversations/{conversationId}/surveys",
+    "type": "unitary",
+    "method": "GET",
+    "path": "conversations_surveys",
+    "result_data": "state"
+  }
+}
