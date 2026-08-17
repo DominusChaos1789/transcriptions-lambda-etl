@@ -2,17 +2,20 @@
 
     s3://bucket/prefix/cliente_prefijo=BDO/operacion_prefijo=SAC/part-<uuid>.parquet
 
-Implemented directly with pyarrow + boto3 (no s3fs/awswrangler dependency)
-so it works the same against moto in tests as it does against real S3.
+Uses fastparquet (not pyarrow) -- fastparquet has no dependency on the
+Apache Arrow C++ library, which was failing to build from source in the
+Lambda CI image. fastparquet writes to a real file path rather than an
+in-memory buffer, so each partition is staged in a temp dir and uploaded
+to S3 afterwards.
 """
 
-import io
+import os
+import tempfile
 import uuid
 from typing import Optional
 
+import fastparquet
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 
 def write_hive_parquet(
@@ -42,9 +45,10 @@ def write_hive_parquet(
 
 
 def _write_partition(s3_client, df: pd.DataFrame, bucket: str, prefix: str) -> str:
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    buffer = io.BytesIO()
-    pq.write_table(table, buffer)
     key = f"{prefix}/part-{uuid.uuid4().hex}.parquet"
-    s3_client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue())
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        local_path = os.path.join(tmp_dir, "part.parquet")
+        fastparquet.write(local_path, df, compression="SNAPPY", write_index=False)
+        with open(local_path, "rb") as f:
+            s3_client.put_object(Bucket=bucket, Key=key, Body=f.read())
     return key

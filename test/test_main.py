@@ -1,11 +1,21 @@
-import io
 import json
+import os
+import tempfile
 
-import pyarrow.parquet as pq
+import pandas as pd
 
 import s3_utils
 from main import handler
 from test.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
+
+
+def _read_parquet_from_s3(s3_client, bucket: str, key: str) -> pd.DataFrame:
+    body = s3_client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        local_path = os.path.join(tmp_dir, "part.parquet")
+        with open(local_path, "wb") as f:
+            f.write(body)
+        return pd.read_parquet(local_path, engine="fastparquet")
 
 
 def test_lambda_handler_end_to_end(aws, seeded_source_files):
@@ -31,10 +41,9 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
 
     total_rows = 0
     for key in result["output_keys"]:
-        body = s3.get_object(Bucket=REFINED_BUCKET, Key=key)["Body"].read()
-        table = pq.read_table(io.BytesIO(body))
-        total_rows += table.num_rows
-        columns = table.column_names
+        df = _read_parquet_from_s3(s3, REFINED_BUCKET, key)
+        total_rows += len(df)
+        columns = df.columns.tolist()
         # Partition columns are encoded in the path, not duplicated in the file.
         assert "cliente_prefijo" not in columns
         assert "operacion_prefijo" not in columns
@@ -43,8 +52,7 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
 
         # Encryption is skipped by default (ENABLE_ENCRYPTION unset): sensitive
         # columns are written as plaintext, hashing still applies.
-        table_dict = table.to_pylist()
-        for row in table_dict:
+        for row in df.to_dict("records"):
             if row["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1":
                 assert row["consumidor_id"] == "14984986"
                 assert json.loads(row["mensajes"])[0]["role"] == "assistant"
@@ -75,9 +83,8 @@ def test_lambda_handler_encrypts_when_explicitly_enabled(aws, seeded_source_file
 
     result = handler({}, None)
 
-    body = s3.get_object(Bucket=REFINED_BUCKET, Key=result["output_keys"][0])["Body"].read()
-    table = pq.read_table(io.BytesIO(body)).to_pylist()
-    row = next(r for r in table if r["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1")
+    df = _read_parquet_from_s3(s3, REFINED_BUCKET, result["output_keys"][0])
+    row = next(r for r in df.to_dict("records") if r["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1")
 
     # With the flag on, sensitive columns are no longer plaintext, and each
     # row carries the wrapped data key needed to decrypt it later.

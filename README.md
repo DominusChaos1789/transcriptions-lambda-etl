@@ -44,7 +44,12 @@ survey API for every conversation in the batch.
    keeping the row with the latest `interaccion_fecha_fin`).
 6. Writes the result as Hive-partitioned parquet
    (`cliente_prefijo=.../operacion_prefijo=.../part-<uuid>.parquet`) to the
-   refined bucket.
+   refined bucket, via `fastparquet` (see `parquet_io.py`). `pyarrow` was
+   the original choice but its build kept failing in the CI image (Python
+   3.13, no prebuilt wheel available there, and its source build needs the
+   Apache Arrow C++ library preinstalled). `fastparquet` still isn't
+   dependency-free -- it needs `cramjam` for compression -- but has had
+   better wheel coverage across recent Python versions in practice.
 7. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
 8. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
@@ -127,8 +132,8 @@ full end-to-end `main.handler` run against seeded fixture files.
 ## Deploying
 
 ```bash
-sam build --use-container   # pyarrow ships native extensions; container build
-                              # matches them to the Lambda runtime
+sam build --use-container   # fastparquet's cramjam dependency ships native extensions;
+                              # container build matches them to the Lambda runtime
 sam deploy --guided
 ```
 

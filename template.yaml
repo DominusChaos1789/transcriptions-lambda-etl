@@ -32,8 +32,10 @@ Resources:
       FunctionName: bdo-transcripciones-etl
       Handler: main.handler
       CodeUri: src/
-      # pyarrow ships native extensions; build with `sam build --use-container`
-      # (or an equivalent manylinux build) so the wheel matches the Lambda runtime.
+      # fastparquet's cramjam dependency ships native extensions; if wheels
+      # aren't resolving for the build image's Python, build with
+      # `sam build --use-container` (or an equivalent manylinux build) so
+      # the wheel matches the Lambda runtime.
       Environment:
         Variables:
           ENV_PREFIX: !Ref EnvPrefix
