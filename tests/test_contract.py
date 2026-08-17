@@ -1,5 +1,5 @@
-from bdo_transcripciones_etl.config import load_settings
-from bdo_transcripciones_etl.contract import load_contract, load_unitary_endpoint
+from config import load_settings
+from contract import load_contract, load_unitary_endpoint
 
 
 def test_resolve_bucket_prefixes_logical_name():

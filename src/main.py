@@ -13,13 +13,13 @@ import logging
 
 import boto3
 
-from . import s3_utils
-from .config import Settings, load_settings
-from .contract import load_contract, load_unitary_endpoint
-from .parquet_io import write_hive_parquet
-from .security import NoOpEncryptionService
-from .step_function import build_step_function_payload
-from .transform import build_dataframe
+import s3_utils
+from config import Settings, load_settings
+from contract import load_contract, load_unitary_endpoint
+from parquet_io import write_hive_parquet
+from security import NoOpEncryptionService
+from step_function import build_step_function_payload
+from transform import build_dataframe
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -33,13 +33,13 @@ def _build_encryption_service(contract, settings: Settings):
     if not settings.enable_encryption or not contract.encryption.get("enabled"):
         return NoOpEncryptionService()
 
-    from .security import EncryptionService
+    from security import EncryptionService
 
     kms_client = boto3.client("kms")
     return EncryptionService(kms_client, contract.encryption["kms_key_alias"])
 
 
-def lambda_handler(event, context):
+def handler(event, context):
     settings = load_settings()
     s3_client = boto3.client("s3")
 

@@ -3,15 +3,15 @@ import json
 
 import pyarrow.parquet as pq
 
-from bdo_transcripciones_etl import s3_utils
-from bdo_transcripciones_etl.handler import lambda_handler
+import s3_utils
+from main import handler
 from tests.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
 
 
 def test_lambda_handler_end_to_end(aws, seeded_source_files):
     s3 = aws["s3"]
 
-    result = lambda_handler({}, None)
+    result = handler({}, None)
 
     assert result["processed_files"] == 2
     assert result["deleted_source_files"] == 2
@@ -60,7 +60,7 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
 
 
 def test_lambda_handler_no_source_files_is_a_noop(aws):
-    result = lambda_handler({}, None)
+    result = handler({}, None)
 
     assert result["processed_files"] == 0
     assert result["conversation_ids"] == []
@@ -71,7 +71,7 @@ def test_lambda_handler_encrypts_when_explicitly_enabled(aws, seeded_source_file
     monkeypatch.setenv("ENABLE_ENCRYPTION", "true")
     s3 = aws["s3"]
 
-    result = lambda_handler({}, None)
+    result = handler({}, None)
 
     body = s3.get_object(Bucket=REFINED_BUCKET, Key=result["output_keys"][0])["Body"].read()
     table = pq.read_table(io.BytesIO(body)).to_pylist()

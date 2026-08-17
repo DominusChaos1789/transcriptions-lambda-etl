@@ -38,7 +38,7 @@ class EncryptionService:
 
     `cryptography` is only imported when this class is actually
     instantiated/used -- encryption is currently skipped by default
-    (see handler._build_encryption_service), so plain hashing-only runs
+    (see main._build_encryption_service), so plain hashing-only runs
     never touch it.
     """
 

@@ -72,16 +72,19 @@ survey API for every conversation in the batch.
 
 ## Layout
 
+Flat module layout (not a package) so the Lambda's Handler setting is simply
+`main.handler` -- `CodeUri: src/` puts these directly at the zip root:
+
 ```
-src/bdo_transcripciones_etl/
-  config.py        # env vars -> Settings, logical->real bucket name resolution
-  contract.py       # loads bdo_sac_structure.json, resolves core.json -> unitary.json
-  s3_utils.py        # list/read/delete JSON, generic S3 helpers
-  security.py         # sha256 hashing + KMS-envelope AES-GCM encryption
-  transform.py          # record -> row mapping, transformations, dedup
-  parquet_io.py          # DataFrame -> Hive-partitioned parquet on S3
-  step_function.py         # conversation ids -> Step Function payload
-  handler.py                 # orchestrates the above; lambda_handler entrypoint
+src/
+  main.py                 # orchestrates the below; `handler(event, context)` entrypoint
+  config.py                # env vars -> Settings, logical->real bucket name resolution
+  contract.py               # loads bdo_sac_structure.json, resolves core.json -> unitary.json
+  s3_utils.py                # list/read/delete JSON, generic S3 helpers
+  security.py                 # sha256 hashing + KMS-envelope AES-GCM encryption
+  transform.py                  # record -> row mapping, transformations, dedup
+  parquet_io.py                  # DataFrame -> Hive-partitioned parquet on S3
+  step_function.py                 # conversation ids -> Step Function payload
 tests/
   fixtures/            # copies of the provided contract/config/sample files
   test_*.py            # pytest unit tests (moto-mocked S3/KMS, no real AWS calls)
@@ -112,7 +115,7 @@ Covers: contract/bucket resolution, column renaming/defaults/type casting,
 transformation order (trim -> uppercase -> remove_accents), hashing,
 encrypt/decrypt round-trips (including the `mensajes` JSON column),
 deduplication, S3 list/read/delete, Step Function URL templating, and a
-full end-to-end `lambda_handler` run against seeded fixture files.
+full end-to-end `main.handler` run against seeded fixture files.
 
 ## Deploying
 

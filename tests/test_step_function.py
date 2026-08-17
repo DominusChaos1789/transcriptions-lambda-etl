@@ -1,4 +1,4 @@
-from bdo_transcripciones_etl.step_function import build_step_function_payload
+from step_function import build_step_function_payload
 from tests.conftest import load_fixture
 
 

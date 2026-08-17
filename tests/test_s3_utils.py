@@ -1,4 +1,4 @@
-from bdo_transcripciones_etl import s3_utils
+import s3_utils
 
 BUCKET = "augusta-nexa-dev-providers-landing"
 PREFIX = "external/datanexa/transacciones/empatia/transcripciones/BDO"

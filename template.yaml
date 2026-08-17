@@ -30,7 +30,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bdo-transcripciones-etl
-      Handler: bdo_transcripciones_etl.handler.lambda_handler
+      Handler: main.handler
       CodeUri: src/
       # pyarrow ships native extensions; build with `sam build --use-container`
       # (or an equivalent manylinux build) so the wheel matches the Lambda runtime.

@@ -8,8 +8,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from .contract import Contract
-from .security import hash_value
+from contract import Contract
+from security import hash_value
 
 CONVERSATION_ID_COLUMN = "conversacion_id"
 
