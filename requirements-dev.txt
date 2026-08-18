@@ -1,7 +1,6 @@
 -r requirements.txt
 pytest>=8.0
 pytest-cov>=5.0
-moto[s3,kms]>=5.0
-cryptography>=42.0
+moto[s3]>=5.0  # moto itself depends on cryptography internally
 black>=24.0
 flake8>=7.0

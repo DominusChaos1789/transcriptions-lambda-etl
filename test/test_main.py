@@ -47,11 +47,8 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
         # Partition columns are encoded in the path, not duplicated in the file.
         assert "cliente_prefijo" not in columns
         assert "operacion_prefijo" not in columns
-        assert "consumidor_id_hash" in columns
         assert "conversacion_id" in columns
 
-        # Encryption is skipped by default (ENABLE_ENCRYPTION unset): sensitive
-        # columns are written as plaintext, hashing still applies.
         for row in df.to_dict("records"):
             if row["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1":
                 assert row["consumidor_id"] == "14984986"
@@ -75,18 +72,3 @@ def test_lambda_handler_no_source_files_is_a_noop(aws):
     assert result["processed_files"] == 0
     assert result["conversation_ids"] == []
     assert result["conversations"] == []
-
-
-def test_lambda_handler_encrypts_when_explicitly_enabled(aws, seeded_source_files, monkeypatch):
-    monkeypatch.setenv("ENABLE_ENCRYPTION", "true")
-    s3 = aws["s3"]
-
-    result = handler({}, None)
-
-    df = _read_parquet_from_s3(s3, REFINED_BUCKET, result["output_keys"][0])
-    row = next(r for r in df.to_dict("records") if r["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1")
-
-    # With the flag on, sensitive columns are no longer plaintext, and each
-    # row carries the wrapped data key needed to decrypt it later.
-    assert row["consumidor_id"] != "14984986"
-    assert row["consumidor_id_edk"] is not None

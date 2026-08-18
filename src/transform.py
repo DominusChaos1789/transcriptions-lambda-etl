@@ -1,7 +1,7 @@
 """Turns raw landing-bucket transcription JSON records into rows matching
 the contract's target schema: rename via `columns`, stamp constants, apply
-`transformations`, hash/encrypt sensitive fields, and hand back the parquet-
-ready rows plus the list of conversation ids seen in this batch."""
+`transformations`, and hand back the parquet-ready rows plus the list of
+conversation ids seen in this batch."""
 
 import json
 import unicodedata
@@ -10,7 +10,6 @@ from typing import Any
 import pandas as pd
 
 from contract import Contract
-from security import hash_value
 
 CONVERSATION_ID_COLUMN = "conversacion_id"
 
@@ -67,38 +66,12 @@ def _apply_transformations(row: dict, contract: Contract) -> dict:
     return row
 
 
-def _build_aad(row: dict, contract: Contract) -> str:
-    aad_columns = contract.encryption.get("aad_columns", [])
-    parts = []
-    for col in aad_columns:
-        if col in row:
-            parts.append(str(row[col]))
-        else:
-            parts.append(str(contract.raw.get(col, "")))
-    return "|".join(parts)
-
-
-def _apply_security(row: dict, contract: Contract, encryption_service) -> dict:
-    columns_by_name = {c["name"]: c for c in contract.columns}
-    encrypted_columns = set(contract.encryption.get("columns", []))
-
-    for name, col_spec in columns_by_name.items():
-        value = row.get(name)
-        if value is None:
-            continue
-
-        if col_spec.get("hash"):
-            row[f"{name}_hash"] = hash_value(str(value))
-
-        if col_spec.get("encrypt") and name in encrypted_columns:
-            plaintext = json.dumps(value, ensure_ascii=False) if col_spec["type"] == "json" else str(value)
-            aad = _build_aad(row, contract)
-            envelope = encryption_service.encrypt(plaintext, aad)
-            row[name] = envelope["ciphertext"]
-            row[f"{name}_edk"] = envelope.get("encrypted_data_key")
-        elif col_spec["type"] == "json":
-            row[name] = json.dumps(value, ensure_ascii=False)
-
+def _serialize_json_columns(row: dict, contract: Contract) -> dict:
+    for col_spec in contract.columns:
+        if col_spec["type"] == "json":
+            name = col_spec["name"]
+            if row.get(name) is not None:
+                row[name] = json.dumps(row[name], ensure_ascii=False)
     return row
 
 
@@ -119,11 +92,9 @@ def _deduplicate(df: pd.DataFrame, contract: Contract) -> pd.DataFrame:
     return df
 
 
-def build_dataframe(
-    records: list[dict], contract: Contract, encryption_service
-) -> tuple[pd.DataFrame, list[str]]:
-    """Maps+cleans+secures every record, returning the resulting DataFrame
-    and the deduplicated list of conversacion_id values seen."""
+def build_dataframe(records: list[dict], contract: Contract) -> tuple[pd.DataFrame, list[str]]:
+    """Maps+cleans every record, returning the resulting DataFrame and the
+    deduplicated list of conversacion_id values seen."""
     rows = []
     conversation_ids: list[str] = []
 
@@ -133,7 +104,7 @@ def build_dataframe(
         conversation_id = row.get(CONVERSATION_ID_COLUMN)
         if conversation_id:
             conversation_ids.append(conversation_id)
-        row = _apply_security(row, contract, encryption_service)
+        row = _serialize_json_columns(row, contract)
         rows.append(row)
 
     df = pd.DataFrame(rows)

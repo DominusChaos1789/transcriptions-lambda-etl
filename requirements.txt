@@ -2,5 +2,3 @@ boto3>=1.34
 pandas>=2.2
 fastparquet>=2024.5.0
 python-dateutil>=2.9
-# cryptography is only needed if ENABLE_ENCRYPTION=true (see requirements-dev.txt);
-# the default plaintext-and-hash-only path never imports it.

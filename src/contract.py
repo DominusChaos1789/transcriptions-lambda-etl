@@ -42,10 +42,6 @@ class Contract:
         return self.raw.get("output", {}).get("iceberg", {}).get("partition_by", [])
 
     @property
-    def encryption(self) -> dict:
-        return self.raw.get("encryption", {})
-
-    @property
     def deduplication(self) -> dict:
         return self.raw.get("deduplication", {})
 

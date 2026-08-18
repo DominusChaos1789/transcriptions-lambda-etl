@@ -31,18 +31,9 @@ survey API for every conversation in the batch.
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
    `timestamp`/`json`), then applies `transformations` (trim, uppercase,
    remove_accents) in the order they appear in the contract.
-4. Applies `hash` per contract: columns marked `hash: true` get a
-   `<name>_hash` (SHA-256) column. **Encryption is skipped for now** --
-   columns marked `encrypt: true` are written as plaintext (the `<name>_edk`
-   column comes back `null`). The KMS/AES-GCM envelope-encryption path
-   (`security.EncryptionService`) is implemented and unit-tested, but the
-   handler defaults to a pass-through `NoOpEncryptionService` and never
-   imports `cryptography` unless `ENABLE_ENCRYPTION=true` is set -- flip that
-   env var (and give the function's role `kms:GenerateDataKey`/`kms:Decrypt`,
-   already in `template.yaml`) once that's ready to turn on.
-5. Deduplicates per `deduplication` (drops repeated `interaccion_id`,
+4. Deduplicates per `deduplication` (drops repeated `interaccion_id`,
    keeping the row with the latest `interaccion_fecha_fin`).
-6. Writes the result as Hive-partitioned parquet
+5. Writes the result as Hive-partitioned parquet
    (`cliente_prefijo=.../operacion_prefijo=.../part-<uuid>.parquet`) to the
    refined bucket, via `fastparquet` (see `parquet_io.py`). `pyarrow` was
    the original choice but its build kept failing in the CI image (Python
@@ -50,9 +41,9 @@ survey API for every conversation in the batch.
    Apache Arrow C++ library preinstalled). `fastparquet` still isn't
    dependency-free -- it needs `cramjam` for compression -- but has had
    better wheel coverage across recent Python versions in practice.
-7. **Deletes the source JSON objects** from the landing bucket once the
+6. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
-8. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
+7. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
    resolves `params/genesys/api/core.json -> unitary -> params/genesys/api/unitary.json`,
    and returns one entry per conversation with `{conversationId}` filled
    into `/api/v2/quality/conversations/{conversationId}/surveys`. This
@@ -62,6 +53,14 @@ survey API for every conversation in the batch.
 
 ## Not implemented (flagged rather than guessed)
 
+- **`hash`/`encrypt` column flags in the contract**: `bdo_sac_structure.json`
+  marks some columns `hash: true`/`encrypt: true` (and has a top-level
+  `encryption` block with a KMS key alias), but this Lambda doesn't act on
+  either flag -- sensitive columns (`consumidor_id`, `consumidor_nombre`,
+  `consumidor_apellido`, `mensajes`) are written to parquet as plain values.
+  A KMS/AES-GCM implementation existed at one point and was deliberately
+  removed as unneeded scope; if hashing/encryption is required later, it'd
+  need to be reintroduced in `transform.py`.
 - **Iceberg / DynamoDB dual-write** (`output.mode: ICEBERG_DYNAMO` in the
   contract): out of scope for this Lambda, which writes plain Hive-partitioned
   parquet as the task described. A separate `iceberg-pipeline-refined` repo
@@ -86,13 +85,12 @@ src/
   config.py                # env vars -> Settings, logical->real bucket name resolution
   contract.py               # loads bdo_sac_structure.json, resolves core.json -> unitary.json
   s3_utils.py                # list/read/delete JSON, generic S3 helpers
-  security.py                 # sha256 hashing + KMS-envelope AES-GCM encryption
-  transform.py                  # record -> row mapping, transformations, dedup
-  parquet_io.py                  # DataFrame -> Hive-partitioned parquet on S3
-  step_function.py                 # conversation ids -> Step Function payload
+  transform.py                 # record -> row mapping, transformations, dedup
+  parquet_io.py                 # DataFrame -> Hive-partitioned parquet on S3
+  step_function.py                # conversation ids -> Step Function payload
 test/
   fixtures/            # copies of the provided contract/config/sample files
-  test_*.py            # pytest unit tests (moto-mocked S3/KMS, no real AWS calls)
+  test_*.py            # pytest unit tests (moto-mocked S3, no real AWS calls)
 template.yaml         # AWS SAM deployment definition
 ```
 
@@ -104,7 +102,6 @@ template.yaml         # AWS SAM deployment definition
 | `RESOURCES_BUCKET` | `${ENV_PREFIX}resources` | Where the contract and Genesys API params live. |
 | `CONTRACT_KEY` | `contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json` | Contract object key. |
 | `CORE_CONFIG_KEY` | `params/genesys/api/core.json` | Resolved to find the `unitary.json` path. |
-| `ENABLE_ENCRYPTION` | `false` | When `false` (default), sensitive columns are written as plaintext and `cryptography` is never imported. Set `true` to turn on the KMS/AES-GCM envelope encryption path. |
 
 ## Running the tests
 
@@ -114,13 +111,12 @@ python -m venv .venv
 .venv/Scripts/python -m pytest -v
 ```
 
-20 unit tests, all mocked (moto for S3/KMS, a local fake KMS client for the
-encryption round-trip tests) -- no AWS credentials or network access needed.
+All mocked (moto for S3) -- no AWS credentials or network access needed.
 Covers: contract/bucket resolution, column renaming/defaults/type casting,
-transformation order (trim -> uppercase -> remove_accents), hashing,
-encrypt/decrypt round-trips (including the `mensajes` JSON column),
-deduplication, S3 list/read/delete, Step Function URL templating, and a
-full end-to-end `main.handler` run against seeded fixture files.
+transformation order (trim -> uppercase -> remove_accents), JSON column
+serialization (the `mensajes` column), deduplication, S3 list/read/delete,
+Step Function URL templating, and a full end-to-end `main.handler` run
+against seeded fixture files.
 
 ## Formatting & linting
 
@@ -138,7 +134,10 @@ sam deploy --guided
 ```
 
 `template.yaml` grants the function: read+list on the landing/resources
-buckets, delete on the landing bucket, put on the refined bucket, and
-`kms:GenerateDataKey`/`kms:Decrypt` scoped to the `alias/data-sensitive` key
-(tighten the KMS resource ARN for production instead of `"*"` with an alias
-condition).
+buckets, delete on the landing bucket, and put on the refined bucket.
+
+`requirements.txt` is for local dev/tests. The CI packaging step should
+instead install from [requirements-lambda.txt](requirements-lambda.txt),
+which deliberately excludes `boto3` (already provided by the Lambda Python
+runtime) to help stay under Lambda's 250 MB unzipped deployment-package
+limit.

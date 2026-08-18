@@ -39,13 +39,8 @@ def aws_credentials(monkeypatch):
 def aws(aws_credentials):
     with mock_aws():
         s3 = boto3.client("s3", region_name="us-east-1")
-        kms = boto3.client("kms", region_name="us-east-1")
         for bucket in (RESOURCES_BUCKET, LANDING_BUCKET, REFINED_BUCKET):
             s3.create_bucket(Bucket=bucket)
-
-        key_response = kms.create_key(Description="data-sensitive test key")
-        key_id = key_response["KeyMetadata"]["KeyId"]
-        kms.create_alias(AliasName="alias/data-sensitive", TargetKeyId=key_id)
 
         s3.put_object(
             Bucket=RESOURCES_BUCKET,
@@ -63,7 +58,7 @@ def aws(aws_credentials):
             Body=(FIXTURES_DIR / "unitary.json").read_bytes(),
         )
 
-        yield {"s3": s3, "kms": kms}
+        yield {"s3": s3}
 
 
 @pytest.fixture
