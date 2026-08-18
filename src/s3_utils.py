@@ -32,6 +32,27 @@ def read_json(s3_client, bucket: str, key: str) -> Any:
     return json.loads(body)
 
 
+def read_json_files(s3_client, bucket: str, keys: Iterable[str]) -> tuple[list[Any], list[str], list[str]]:
+    """Reads every key as JSON, tolerating individual bad files (empty
+    objects, corrupted uploads, etc.) instead of failing the whole batch.
+    Returns (records, successful_keys, skipped_keys) -- skipped keys are
+    logged with the failure reason and left untouched in S3 so they can be
+    investigated, rather than being deleted alongside the good ones."""
+    records: list[Any] = []
+    successful_keys: list[str] = []
+    skipped_keys: list[str] = []
+
+    for key in keys:
+        try:
+            records.append(read_json(s3_client, bucket, key))
+            successful_keys.append(key)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            logger.warning("Skipping unreadable source file s3://%s/%s: %s", bucket, key, exc)
+            skipped_keys.append(key)
+
+    return records, successful_keys, skipped_keys
+
+
 def write_json(s3_client, bucket: str, key: str, payload: Any) -> None:
     s3_client.put_object(
         Bucket=bucket,

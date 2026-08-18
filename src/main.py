@@ -40,11 +40,19 @@ def handler(event, context):
     if not source_keys:
         return {
             "processed_files": 0,
+            "skipped_files": [],
             "conversation_ids": [],
             "conversations": [],
         }
 
-    records = [s3_utils.read_json(s3_client, source_bucket, key) for key in source_keys]
+    records, successful_keys, skipped_keys = s3_utils.read_json_files(s3_client, source_bucket, source_keys)
+    if skipped_keys:
+        logger.warning(
+            "Skipped %d unreadable source file(s) under s3://%s/%s",
+            len(skipped_keys),
+            source_bucket,
+            contract.source_prefix,
+        )
 
     rows, conversation_ids = build_rows(records, contract)
 
@@ -62,14 +70,17 @@ def handler(event, context):
         "Wrote %d parquet object(s) to s3://%s/%s", len(written_keys), output_bucket, contract.output_prefix
     )
 
-    deleted_keys = s3_utils.delete_objects(s3_client, source_bucket, source_keys)
+    # Only delete files that were actually read and processed -- unreadable
+    # ones stay in the landing bucket for investigation.
+    deleted_keys = s3_utils.delete_objects(s3_client, source_bucket, successful_keys)
     logger.info("Deleted %d source object(s) from s3://%s", len(deleted_keys), source_bucket)
 
     unitary_config = load_unitary_endpoint(s3_client, settings)
     step_function_payload = build_step_function_payload(unitary_config, conversation_ids)
 
     return {
-        "processed_files": len(source_keys),
+        "processed_files": len(successful_keys),
+        "skipped_files": skipped_keys,
         "output_bucket": output_bucket,
         "output_keys": written_keys,
         "deleted_source_files": len(deleted_keys),

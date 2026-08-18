@@ -25,7 +25,13 @@ survey API for every conversation in the batch.
    everything else: which bucket/prefix to read, how to rename each column,
    and where to write the result.
 2. Lists every `*.json` object under the contract's `source.prefix_pattern`
-   and loads them.
+   and loads them. Individual unreadable files (empty objects, corrupted
+   uploads, anything that fails `json.loads`) are **skipped, not fatal**
+   (`s3_utils.read_json_files`): a warning is logged with the S3 key, the
+   rest of the batch still gets processed and written, and the bad file is
+   left in place in the landing bucket (not deleted) for investigation.
+   The Lambda's return value includes `skipped_files` (the list of keys
+   that failed) alongside `processed_files` (the count that succeeded).
 3. For each record: renames fields per `columns[].source_column -> name`,
    stamps constant columns (`cliente_prefijo`, `operacion_prefijo`,
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
@@ -132,9 +138,10 @@ All mocked (moto for S3) -- no AWS credentials or network access needed.
 Covers: contract/bucket resolution, column renaming/defaults/type casting,
 transformation order (trim -> uppercase -> remove_accents), JSON column
 serialization (the `mensajes` column), DuckDB-based partitioning/dedup/
-timestamp-casting (`test_parquet_io.py`), S3 list/read/delete, Step
-Function URL templating, and a full end-to-end `src.main.handler` run
-against seeded fixture files.
+timestamp-casting (`test_parquet_io.py`), S3 list/read/delete, skipping
+unreadable source files without failing the batch, Step Function URL
+templating, and a full end-to-end `src.main.handler` run against seeded
+fixture files.
 
 ## Formatting & linting
 

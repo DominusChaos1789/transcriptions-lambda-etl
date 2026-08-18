@@ -67,5 +67,23 @@ def test_lambda_handler_no_source_files_is_a_noop(aws):
     result = handler({}, None)
 
     assert result["processed_files"] == 0
+    assert result["skipped_files"] == []
     assert result["conversation_ids"] == []
     assert result["conversations"] == []
+
+
+def test_lambda_handler_skips_bad_file_and_processes_the_rest(aws, seeded_source_files):
+    s3 = aws["s3"]
+    bad_key = f"{SOURCE_PREFIX}/corrupted.json"
+    s3.put_object(Bucket=LANDING_BUCKET, Key=bad_key, Body=b"")
+
+    result = handler({}, None)
+
+    assert result["processed_files"] == 2
+    assert result["skipped_files"] == [bad_key]
+    assert result["deleted_source_files"] == 2
+
+    # The bad file is left in place for investigation; only the good ones
+    # (and the source files that succeeded) are gone.
+    remaining = s3_utils.list_json_keys(s3, LANDING_BUCKET, SOURCE_PREFIX)
+    assert remaining == [bad_key]

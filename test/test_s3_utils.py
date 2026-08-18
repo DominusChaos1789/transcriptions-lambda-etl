@@ -31,3 +31,29 @@ def test_delete_objects_removes_all_given_keys(aws, seeded_source_files):
     assert sorted(deleted) == sorted(seeded_source_files)
     remaining = s3_utils.list_json_keys(s3, BUCKET, PREFIX)
     assert remaining == []
+
+
+def test_read_json_files_skips_empty_file_and_keeps_good_ones(aws, seeded_source_files):
+    s3 = aws["s3"]
+    bad_key = f"{PREFIX}/empty.json"
+    s3.put_object(Bucket=BUCKET, Key=bad_key, Body=b"")
+
+    records, successful_keys, skipped_keys = s3_utils.read_json_files(
+        s3, BUCKET, seeded_source_files + [bad_key]
+    )
+
+    assert len(records) == len(seeded_source_files)
+    assert sorted(successful_keys) == sorted(seeded_source_files)
+    assert skipped_keys == [bad_key]
+
+
+def test_read_json_files_all_bad_returns_empty_records(aws):
+    s3 = aws["s3"]
+    bad_key = f"{PREFIX}/broken.json"
+    s3.put_object(Bucket=BUCKET, Key=bad_key, Body=b"not json at all")
+
+    records, successful_keys, skipped_keys = s3_utils.read_json_files(s3, BUCKET, [bad_key])
+
+    assert records == []
+    assert successful_keys == []
+    assert skipped_keys == [bad_key]
