@@ -46,6 +46,10 @@ class Contract:
         return [c["name"] for c in self.columns if c["type"] == "timestamp"]
 
     @property
+    def column_types(self) -> dict[str, str]:
+        return {c["name"]: c["type"] for c in self.columns}
+
+    @property
     def deduplication(self) -> dict:
         return self.raw.get("deduplication", {})
 

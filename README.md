@@ -53,10 +53,18 @@ survey API for every conversation in the batch.
    `PARTITION_BY` copy. Rows are staged to a local temp NDJSON file first
    (DuckDB's `read_json_auto` needs a real file), and dedup happens once,
    before splitting into groups, via a `QUALIFY ROW_NUMBER() OVER (...)`
-   window function. No pandas/numpy anywhere in this pipeline -- `pyarrow`
-   (build kept failing in the CI image) and then `fastparquet`+`cramjam`
-   (worked, but still pandas-based) were both tried and dropped in favor
-   of DuckDB, which needs neither.
+   window function. Every column is explicitly `CAST` to the SQL type
+   matching its contract-declared `type` (`string`->`VARCHAR`,
+   `integer`->`BIGINT`, `timestamp`->`TIMESTAMP`, `json`->`VARCHAR`)
+   instead of trusting DuckDB's `read_json_auto` type inference -- that
+   inference over-eagerly promotes UUID-*shaped* strings (like
+   `conversacion_id`, which holds `genesys_cloud_id` values) to DuckDB's
+   native `UUID` logical type, which most Parquet readers besides DuckDB
+   itself don't understand (AWS S3 Select fails outright with
+   `Unsupported Parquet type UUID` on it). No pandas/numpy anywhere in
+   this pipeline -- `pyarrow` (build kept failing in the CI image) and
+   then `fastparquet`+`cramjam` (worked, but still pandas-based) were both
+   tried and dropped in favor of DuckDB, which needs neither.
 5. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
 6. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,

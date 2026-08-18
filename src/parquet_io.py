@@ -41,16 +41,35 @@ def _quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _build_timestamp_cast_sql(source_sql: str, timestamp_columns: list[str]) -> str:
+# Maps the contract's column "type" values to DuckDB SQL types. Every
+# declared column gets cast explicitly rather than trusting DuckDB's
+# read_json_auto type inference -- that inference over-eagerly promotes
+# UUID-shaped strings (e.g. conversacion_id) to DuckDB's native UUID type,
+# which most Parquet readers other than DuckDB itself don't understand
+# (AWS S3 Select fails with "Unsupported Parquet type UUID" on it).
+_SQL_TYPE_BY_CONTRACT_TYPE = {
+    "string": "VARCHAR",
+    "integer": "BIGINT",
+    "timestamp": "TIMESTAMP",
+    "json": "VARCHAR",
+}
+
+
+def _build_type_cast_sql(source_sql: str, column_types: dict[str, str]) -> str:
     """`source_sql` is a bare table reference (e.g. a table function call
     like `read_json_auto(...)`), not a full SELECT -- it can't be wrapped
     in parens as a subquery. This always returns a complete SELECT
     statement so downstream callers can safely parenthesize it."""
-    if not timestamp_columns:
+    castable = {
+        name: _SQL_TYPE_BY_CONTRACT_TYPE[contract_type]
+        for name, contract_type in column_types.items()
+        if contract_type in _SQL_TYPE_BY_CONTRACT_TYPE
+    }
+    if not castable:
         return f"SELECT * FROM {source_sql}"
-    exclude_list = ", ".join(_quote_ident(c) for c in timestamp_columns)
+    exclude_list = ", ".join(_quote_ident(c) for c in castable)
     cast_list = ", ".join(
-        f"CAST({_quote_ident(c)} AS TIMESTAMP) AS {_quote_ident(c)}" for c in timestamp_columns
+        f"CAST({_quote_ident(c)} AS {sql_type}) AS {_quote_ident(c)}" for c, sql_type in castable.items()
     )
     return f"SELECT * EXCLUDE ({exclude_list}), {cast_list} FROM {source_sql}"
 
@@ -85,7 +104,7 @@ def write_hive_parquet(
     bucket: str,
     prefix: str,
     partition_cols: Optional[list[str]] = None,
-    timestamp_columns: Optional[list[str]] = None,
+    column_types: Optional[dict[str, str]] = None,
     dedup: Optional[dict] = None,
 ) -> list[str]:
     """Returns the list of object keys written."""
@@ -106,7 +125,7 @@ def write_hive_parquet(
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
         source_sql = f"read_json_auto({_quote_literal(ndjson_path)})"
-        source_sql = _build_timestamp_cast_sql(source_sql, timestamp_columns or [])
+        source_sql = _build_type_cast_sql(source_sql, column_types or {})
         source_sql = _build_dedup_sql(source_sql, dedup)
 
         written_keys = []

@@ -63,7 +63,7 @@ def handler(event, context):
         output_bucket,
         contract.output_prefix,
         partition_cols=contract.partition_by,
-        timestamp_columns=contract.timestamp_columns,
+        column_types=contract.column_types,
         dedup=contract.deduplication,
     )
     logger.info(

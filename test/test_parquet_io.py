@@ -45,7 +45,7 @@ def test_write_hive_parquet_partitions_by_configured_columns(aws, contract):
         "augusta-nexa-dev-refined",
         "transacciones/empatia/transcripciones",
         partition_cols=contract.partition_by,
-        timestamp_columns=contract.timestamp_columns,
+        column_types=contract.column_types,
         dedup=contract.deduplication,
     )
 
@@ -69,6 +69,37 @@ def test_write_hive_parquet_partitions_by_configured_columns(aws, contract):
     assert "operacion_prefijo" not in written
 
 
+def test_write_hive_parquet_does_not_infer_uuid_type_for_string_columns(aws, contract):
+    # conversacion_id holds UUID-formatted strings (genesys_cloud_id).
+    # DuckDB's read_json_auto over-eagerly promotes those to its native
+    # UUID logical type unless explicitly cast to the contract's declared
+    # "string" type -- and most Parquet readers besides DuckDB itself
+    # (e.g. AWS S3 Select) can't read a UUID-typed column at all.
+    s3 = aws["s3"]
+    records = [load_fixture("sample_transcription_1.json")]
+    rows, _ = build_rows(records, contract)
+
+    keys = write_hive_parquet(
+        s3,
+        rows,
+        "augusta-nexa-dev-refined",
+        "p",
+        partition_cols=contract.partition_by,
+        column_types=contract.column_types,
+        dedup=contract.deduplication,
+    )
+
+    body = s3.get_object(Bucket="augusta-nexa-dev-refined", Key=keys[0])["Body"].read()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        local_path = os.path.join(tmp_dir, "part.parquet")
+        with open(local_path, "wb") as f:
+            f.write(body)
+        schema = duckdb.sql(f"DESCRIBE SELECT * FROM read_parquet('{local_path}')").fetchall()
+
+    column_type_by_name = {row[0]: row[1] for row in schema}
+    assert column_type_by_name["conversacion_id"] == "VARCHAR"
+
+
 def test_write_hive_parquet_casts_timestamp_columns(aws, contract):
     s3 = aws["s3"]
     records = [load_fixture("sample_transcription_1.json")]
@@ -80,7 +111,7 @@ def test_write_hive_parquet_casts_timestamp_columns(aws, contract):
         "augusta-nexa-dev-refined",
         "p",
         partition_cols=contract.partition_by,
-        timestamp_columns=contract.timestamp_columns,
+        column_types=contract.column_types,
         dedup=contract.deduplication,
     )
 
@@ -104,7 +135,7 @@ def test_write_hive_parquet_dedup_keeps_latest_fecha_fin(aws, contract):
         "augusta-nexa-dev-refined",
         "dedup",
         partition_cols=contract.partition_by,
-        timestamp_columns=contract.timestamp_columns,
+        column_types=contract.column_types,
         dedup=contract.deduplication,
     )
 
@@ -152,7 +183,7 @@ def test_write_hive_parquet_json_column_round_trips(aws, contract):
         "augusta-nexa-dev-refined",
         "p",
         partition_cols=contract.partition_by,
-        timestamp_columns=contract.timestamp_columns,
+        column_types=contract.column_types,
         dedup=contract.deduplication,
     )
 
