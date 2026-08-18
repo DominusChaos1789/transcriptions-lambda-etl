@@ -1,23 +1,29 @@
-"""Writes rows to S3 as Hive-partitioned parquet, via DuckDB.
+"""Writes rows to S3 as partitioned parquet, via DuckDB.
+
+Output layout is:
+
+    <prefix>/<partition_col_1_value>/<partition_col_2_value>/.../
+        year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet
+
+`partition_cols` (e.g. cliente_prefijo, operacion_prefijo) become bare
+directory segments (their value only, no "col=" prefix) -- year/month/day
+are always appended as real Hive-style key=value segments, based on the
+processing date (UTC, when this function runs), not any field in the
+data. Since DuckDB's native PARTITION_BY always emits "col=value" for
+every column, getting the bare-value segments means grouping the rows by
+partition value combinations manually (one COPY per group) instead of a
+single PARTITION_BY COPY.
 
 DuckDB (not pandas/pyarrow/fastparquet) does the ingestion, dedup, and
-partitioned parquet write in a single COPY statement. DuckDB's
-read_json_auto needs a real file, not an in-memory list, so the mapped
-rows are staged to a local temp NDJSON file first; the resulting parquet
-file(s) are then walked and uploaded to S3.
-
-Note: partition columns (e.g. cliente_prefijo, operacion_prefijo) end up
-both in the S3 key path AND as regular columns inside each written file --
-DuckDB's PARTITION_BY requires the column to be present in the query to
-partition by it, and doesn't offer a way to drop it afterwards without a
-second read/write pass per file. This is a valid, common pattern (Athena/
-Glue/Spark all handle it fine); it's just slightly redundant storage.
+parquet write. DuckDB's read_json_auto needs a real file, not an
+in-memory list, so the mapped rows are staged to a local temp NDJSON file
+first; the resulting parquet file(s) are then uploaded to S3.
 """
 
 import json
 import os
 import tempfile
-import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import duckdb
@@ -85,6 +91,10 @@ def write_hive_parquet(
     partition_cols = [c for c in (partition_cols or []) if c in rows[0]]
     prefix = prefix.rstrip("/")
 
+    now = datetime.now(timezone.utc)
+    date_path = f"year={now.year:04d}/month={now.month:02d}/day={now.day:02d}"
+    filename = f"transcripciones_{now.strftime('%Y%m%dT%H%M%SZ')}.parquet"
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         ndjson_path = os.path.join(tmp_dir, "rows.jsonl")
         with open(ndjson_path, "w", encoding="utf-8") as f:
@@ -95,35 +105,44 @@ def write_hive_parquet(
         source_sql = _build_timestamp_cast_sql(source_sql, timestamp_columns or [])
         source_sql = _build_dedup_sql(source_sql, dedup)
 
-        if partition_cols:
-            output_dir = os.path.join(tmp_dir, "output")
-            partition_clause = f", PARTITION_BY ({', '.join(_quote_ident(c) for c in partition_cols)})"
-            copy_sql = (
-                f"COPY ({source_sql}) TO {_quote_literal(output_dir)} (FORMAT PARQUET{partition_clause})"
-            )
-
-            with duckdb.connect() as con:
-                con.execute(copy_sql)
-
-            written_keys = []
-            for root, _dirs, files in os.walk(output_dir):
-                for filename in sorted(files):
-                    if not filename.endswith(".parquet"):
-                        continue
-                    local_path = os.path.join(root, filename)
-                    relative_path = os.path.relpath(local_path, output_dir).replace(os.sep, "/")
-                    key = f"{prefix}/{relative_path}"
-                    with open(local_path, "rb") as fh:
-                        s3_client.put_object(Bucket=bucket, Key=key, Body=fh.read())
-                    written_keys.append(key)
-            return written_keys
-
-        local_path = os.path.join(tmp_dir, f"part-{uuid.uuid4().hex}.parquet")
-        copy_sql = f"COPY ({source_sql}) TO {_quote_literal(local_path)} (FORMAT PARQUET)"
+        written_keys = []
         with duckdb.connect() as con:
-            con.execute(copy_sql)
+            con.execute(f"CREATE TEMP TABLE deduped AS {source_sql}")
 
-        key = f"{prefix}/{os.path.basename(local_path)}"
-        with open(local_path, "rb") as fh:
-            s3_client.put_object(Bucket=bucket, Key=key, Body=fh.read())
-        return [key]
+            if partition_cols:
+                ident_list = ", ".join(_quote_ident(c) for c in partition_cols)
+                combos = con.execute(f"SELECT DISTINCT {ident_list} FROM deduped").fetchall()
+                exclude_clause = f" EXCLUDE ({ident_list})"
+            else:
+                combos = [()]
+                exclude_clause = ""
+
+            for i, combo in enumerate(combos):
+                where_terms = []
+                params = []
+                for col, value in zip(partition_cols, combo):
+                    if value is None:
+                        where_terms.append(f"{_quote_ident(col)} IS NULL")
+                    else:
+                        where_terms.append(f"{_quote_ident(col)} = ?")
+                        params.append(value)
+                where_clause = f" WHERE {' AND '.join(where_terms)}" if where_terms else ""
+
+                partition_path = "/".join(str(value) for value in combo)
+                key_prefix = (
+                    f"{prefix}/{partition_path}/{date_path}" if partition_path else f"{prefix}/{date_path}"
+                )
+
+                local_path = os.path.join(tmp_dir, f"part_{i}.parquet")
+                copy_sql = (
+                    f"COPY (SELECT *{exclude_clause} FROM deduped{where_clause}) "
+                    f"TO {_quote_literal(local_path)} (FORMAT PARQUET)"
+                )
+                con.execute(copy_sql, params)
+
+                key = f"{key_prefix}/{filename}"
+                with open(local_path, "rb") as fh:
+                    s3_client.put_object(Bucket=bucket, Key=key, Body=fh.read())
+                written_keys.append(key)
+
+        return written_keys

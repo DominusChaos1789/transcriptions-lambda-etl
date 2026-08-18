@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 
 import duckdb
 import pytest
@@ -20,6 +21,11 @@ def _read_parquet_rows(s3_client, bucket: str, key: str) -> list[dict]:
         relation = duckdb.sql(f"SELECT * FROM read_parquet('{local_path}')")
         columns = [d[0] for d in relation.description]
         return [dict(zip(columns, row)) for row in relation.fetchall()]
+
+
+def _expected_date_path() -> str:
+    now = datetime.now(timezone.utc)
+    return f"year={now.year:04d}/month={now.month:02d}/day={now.day:02d}"
 
 
 @pytest.fixture
@@ -44,14 +50,20 @@ def test_write_hive_parquet_partitions_by_configured_columns(aws, contract):
     )
 
     assert len(keys) >= 1
+    expected_prefix = f"transacciones/empatia/transcripciones/BDO/SAC/{_expected_date_path()}/"
     for key in keys:
-        assert key.startswith(
-            "transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/"
-        )
-        assert key.endswith(".parquet")
+        assert key.startswith(expected_prefix)
+        filename = key.rsplit("/", 1)[-1]
+        assert filename.startswith("transcripciones_")
+        assert filename.endswith(".parquet")
 
     total_rows = sum(len(_read_parquet_rows(s3, "augusta-nexa-dev-refined", key)) for key in keys)
     assert total_rows == 2
+
+    # Partition columns are encoded in the path, not duplicated in the file.
+    written = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])[0]
+    assert "cliente_prefijo" not in written
+    assert "operacion_prefijo" not in written
 
 
 def test_write_hive_parquet_casts_timestamp_columns(aws, contract):
@@ -120,7 +132,7 @@ def test_write_hive_parquet_without_partition_columns_writes_a_single_file(aws):
     keys = write_hive_parquet(s3, rows, "augusta-nexa-dev-refined", "flat")
 
     assert len(keys) == 1
-    assert keys[0].startswith("flat/part-")
+    assert keys[0].startswith(f"flat/{_expected_date_path()}/transcripciones_")
     assert keys[0].endswith(".parquet")
     written_rows = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])
     assert len(written_rows) == 2

@@ -7,7 +7,7 @@ builds the per-conversation payload a Step Function uses to call Genesys'
 survey API for every conversation in the batch.
 
 - **Source**: `s3://augusta-nexa-dev-providers-landing/external/datanexa/transacciones/empatia/transcripciones/BDO/*.json`
-- **Target**: `s3://augusta-nexa-dev-refined/transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/*.parquet`
+- **Target**: `s3://augusta-nexa-dev-refined/transacciones/empatia/transcripciones/BDO/SAC/year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
 - **Contract**: `s3://augusta-nexa-dev-resources/contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json`
 
 > The contract's `output_append.prefix_pattern` (`transacciones/empatia/transcripciones`)
@@ -37,24 +37,30 @@ survey API for every conversation in the batch.
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
    `timestamp`/`json`), then applies `transformations` (trim, uppercase,
    remove_accents) in the order they appear in the contract.
-4. Writes the result as Hive-partitioned parquet
-   (`cliente_prefijo=.../operacion_prefijo=.../data_N.parquet`) to the
-   refined bucket, via **DuckDB** (see `parquet_io.py`): rows are staged to
-   a local temp NDJSON file, loaded with `read_json_auto`, deduplicated per
-   `deduplication` (drops repeated `interaccion_id`, keeping the row with
-   the latest `interaccion_fecha_fin`, via a `QUALIFY ROW_NUMBER() OVER
-   (...)` window function) and written with a single
-   `COPY (...) TO ... (FORMAT PARQUET, PARTITION_BY (...))` statement, then
-   the resulting file(s) are uploaded to S3. No pandas/numpy anywhere in
-   this pipeline -- `pyarrow` (build kept failing in the CI image) and then
-   `fastparquet`+`cramjam` (worked, but still pandas-based) were both tried
-   and dropped in favor of DuckDB, which needs neither. One tradeoff: the
-   partition columns (`cliente_prefijo`, `operacion_prefijo`) end up both in
-   the S3 key path *and* as regular columns inside each file -- DuckDB's
-   `PARTITION_BY` needs them present in the query to partition by them, and
-   there's no built-in way to drop them afterwards short of a second
-   read/write pass per file. This is a valid, common pattern (Athena/Glue/
-   Spark all handle it), just slightly redundant storage.
+4. Writes the result as partitioned parquet to the refined bucket, via
+   **DuckDB** (see `parquet_io.py`):
+   `<prefix>/<partition_col_1_value>/<partition_col_2_value>/.../year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
+   -- e.g. `.../BDO/SAC/year=2026/month=08/day=18/transcripciones_20260818T153045Z.parquet`.
+   `partition_cols` (`cliente_prefijo`, `operacion_prefijo` per the
+   contract's `output.iceberg.partition_by`) become **bare-value**
+   directory segments (just `BDO`/`SAC`, no `cliente_prefijo=` prefix);
+   `year=`/`month=`/`day=` are always appended as real Hive-style
+   key=value segments based on the **processing date** (UTC, when the
+   Lambda runs) -- not any field in the data, and not contract-configurable.
+   Since DuckDB's native `PARTITION_BY` always emits `col=value` for every
+   column, getting bare-value segments means grouping the rows by distinct
+   partition-value combinations manually (`SELECT DISTINCT ...`, then one
+   `COPY ... WHERE ...` per group) instead of a single `PARTITION_BY` copy
+   -- which conveniently also means `cliente_prefijo`/`operacion_prefijo`
+   can be cleanly `EXCLUDE`d from the file content this time (no longer
+   duplicated between the S3 path and the file's own columns). Rows are
+   staged to a local temp NDJSON file first (DuckDB's `read_json_auto`
+   needs a real file), and dedup happens once, before splitting into
+   groups, via a `QUALIFY ROW_NUMBER() OVER (...)` window function.
+   No pandas/numpy anywhere in this pipeline -- `pyarrow` (build kept
+   failing in the CI image) and then `fastparquet`+`cramjam` (worked, but
+   still pandas-based) were both tried and dropped in favor of DuckDB,
+   which needs neither.
 5. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
 6. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
