@@ -1,13 +1,17 @@
 """Turns raw landing-bucket transcription JSON records into rows matching
 the contract's target schema: rename via `columns`, stamp constants, apply
 `transformations`, and hand back the parquet-ready rows plus the list of
-conversation ids seen in this batch."""
+conversation ids seen in this batch.
+
+Deliberately pandas-free: rows are plain dicts all the way through. Dedup
+and the actual parquet write happen downstream in parquet_io.py, via
+DuckDB.
+"""
 
 import json
 import unicodedata
+from datetime import datetime, timezone
 from typing import Any
-
-import pandas as pd
 
 from contract import Contract
 
@@ -22,7 +26,10 @@ def _cast_value(raw_value: Any, col_type: str) -> Any:
     if col_type == "integer":
         return int(raw_value)
     if col_type == "timestamp":
-        return pd.to_datetime(raw_value, utc=True)
+        # Normalize to a UTC ISO-8601 string; parquet_io.py casts this back
+        # to a real TIMESTAMP column when it writes the parquet file.
+        parsed = datetime.fromisoformat(raw_value)
+        return parsed.astimezone(timezone.utc).isoformat()
     if col_type == "json":
         return raw_value
     return raw_value
@@ -75,26 +82,10 @@ def _serialize_json_columns(row: dict, contract: Contract) -> dict:
     return row
 
 
-def _deduplicate(df: pd.DataFrame, contract: Contract) -> pd.DataFrame:
-    dedup = contract.deduplication
-    if not dedup.get("enabled"):
-        return df
-
-    order_by = dedup.get("order_by", [])
-    order_type = dedup.get("order_type", [])
-    ascending = [ot.lower() != "desc" for ot in order_type] or True
-    if order_by:
-        df = df.sort_values(by=order_by, ascending=ascending)
-
-    record_key = dedup.get("record_key", [])
-    if record_key:
-        df = df.drop_duplicates(subset=record_key, keep="first")
-    return df
-
-
-def build_dataframe(records: list[dict], contract: Contract) -> tuple[pd.DataFrame, list[str]]:
-    """Maps+cleans every record, returning the resulting DataFrame and the
-    deduplicated list of conversacion_id values seen."""
+def build_rows(records: list[dict], contract: Contract) -> tuple[list[dict], list[str]]:
+    """Maps+cleans every record, returning the resulting rows and the
+    deduplicated list of conversacion_id values seen. Dedup itself happens
+    later, in parquet_io.py, as part of the DuckDB write."""
     rows = []
     conversation_ids: list[str] = []
 
@@ -107,8 +98,5 @@ def build_dataframe(records: list[dict], contract: Contract) -> tuple[pd.DataFra
         row = _serialize_json_columns(row, contract)
         rows.append(row)
 
-    df = pd.DataFrame(rows)
-    df = _deduplicate(df, contract)
-
     unique_conversation_ids = sorted(set(conversation_ids))
-    return df, unique_conversation_ids
+    return rows, unique_conversation_ids

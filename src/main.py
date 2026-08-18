@@ -19,7 +19,7 @@ from config import load_settings
 from contract import load_contract, load_unitary_endpoint
 from parquet_io import write_hive_parquet
 from step_function import build_step_function_payload
-from transform import build_dataframe
+from transform import build_rows
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -46,15 +46,17 @@ def handler(event, context):
 
     records = [s3_utils.read_json(s3_client, source_bucket, key) for key in source_keys]
 
-    df, conversation_ids = build_dataframe(records, contract)
+    rows, conversation_ids = build_rows(records, contract)
 
     output_bucket = settings.resolve_bucket(contract.output_bucket_logical)
     written_keys = write_hive_parquet(
         s3_client,
-        df,
+        rows,
         output_bucket,
         contract.output_prefix,
         partition_cols=contract.partition_by,
+        timestamp_columns=contract.timestamp_columns,
+        dedup=contract.deduplication,
     )
     logger.info(
         "Wrote %d parquet object(s) to s3://%s/%s", len(written_keys), output_bucket, contract.output_prefix

@@ -27,10 +27,12 @@ Resources:
       FunctionName: bdo-transcripciones-etl
       Handler: main.handler
       CodeUri: src/
-      # fastparquet's cramjam dependency ships native extensions; if wheels
-      # aren't resolving for the build image's Python, build with
-      # `sam build --use-container` (or an equivalent manylinux build) so
-      # the wheel matches the Lambda runtime.
+      # duckdb ships a compiled native extension; if wheels aren't resolving
+      # for the build image's Python, build with `sam build --use-container`
+      # (or an equivalent manylinux build) so the wheel matches the Lambda
+      # runtime. DuckDB also stages NDJSON/parquet in /tmp during the write
+      # (see parquet_io.py) -- default 512 MB ephemeral storage is plenty
+      # for this workload, but bump EphemeralStorage below if batches grow.
       Environment:
         Variables:
           ENV_PREFIX: !Ref EnvPrefix

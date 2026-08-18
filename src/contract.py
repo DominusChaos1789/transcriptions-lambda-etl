@@ -42,6 +42,10 @@ class Contract:
         return self.raw.get("output", {}).get("iceberg", {}).get("partition_by", [])
 
     @property
+    def timestamp_columns(self) -> list[str]:
+        return [c["name"] for c in self.columns if c["type"] == "timestamp"]
+
+    @property
     def deduplication(self) -> dict:
         return self.raw.get("deduplication", {})
 

@@ -2,20 +2,22 @@ import json
 import os
 import tempfile
 
-import pandas as pd
+import duckdb
 
 import s3_utils
 from main import handler
 from test.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
 
 
-def _read_parquet_from_s3(s3_client, bucket: str, key: str) -> pd.DataFrame:
+def _read_parquet_rows(s3_client, bucket: str, key: str) -> list[dict]:
     body = s3_client.get_object(Bucket=bucket, Key=key)["Body"].read()
     with tempfile.TemporaryDirectory() as tmp_dir:
         local_path = os.path.join(tmp_dir, "part.parquet")
         with open(local_path, "wb") as f:
             f.write(body)
-        return pd.read_parquet(local_path, engine="fastparquet")
+        relation = duckdb.sql(f"SELECT * FROM read_parquet('{local_path}')")
+        columns = [d[0] for d in relation.description]
+        return [dict(zip(columns, row)) for row in relation.fetchall()]
 
 
 def test_lambda_handler_end_to_end(aws, seeded_source_files):
@@ -41,15 +43,10 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
 
     total_rows = 0
     for key in result["output_keys"]:
-        df = _read_parquet_from_s3(s3, REFINED_BUCKET, key)
-        total_rows += len(df)
-        columns = df.columns.tolist()
-        # Partition columns are encoded in the path, not duplicated in the file.
-        assert "cliente_prefijo" not in columns
-        assert "operacion_prefijo" not in columns
-        assert "conversacion_id" in columns
-
-        for row in df.to_dict("records"):
+        written_rows = _read_parquet_rows(s3, REFINED_BUCKET, key)
+        total_rows += len(written_rows)
+        for row in written_rows:
+            assert "conversacion_id" in row
             if row["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1":
                 assert row["consumidor_id"] == "14984986"
                 assert json.loads(row["mensajes"])[0]["role"] == "assistant"

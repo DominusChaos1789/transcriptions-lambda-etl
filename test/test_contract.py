@@ -23,6 +23,7 @@ def test_load_contract_exposes_source_and_output(aws):
     assert contract.output_prefix == "transacciones/empatia/transcripciones"
     assert contract.partition_by == ["cliente_prefijo", "operacion_prefijo"]
     assert {c["name"] for c in contract.columns} >= {"conversacion_id", "consumidor_id", "mensajes"}
+    assert set(contract.timestamp_columns) == {"interaccion_fecha_inicio", "interaccion_fecha_fin"}
 
 
 def test_load_unitary_endpoint_follows_core_json(aws):

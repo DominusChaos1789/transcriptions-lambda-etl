@@ -31,19 +31,27 @@ survey API for every conversation in the batch.
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
    `timestamp`/`json`), then applies `transformations` (trim, uppercase,
    remove_accents) in the order they appear in the contract.
-4. Deduplicates per `deduplication` (drops repeated `interaccion_id`,
-   keeping the row with the latest `interaccion_fecha_fin`).
-5. Writes the result as Hive-partitioned parquet
-   (`cliente_prefijo=.../operacion_prefijo=.../part-<uuid>.parquet`) to the
-   refined bucket, via `fastparquet` (see `parquet_io.py`). `pyarrow` was
-   the original choice but its build kept failing in the CI image (Python
-   3.13, no prebuilt wheel available there, and its source build needs the
-   Apache Arrow C++ library preinstalled). `fastparquet` still isn't
-   dependency-free -- it needs `cramjam` for compression -- but has had
-   better wheel coverage across recent Python versions in practice.
-6. **Deletes the source JSON objects** from the landing bucket once the
+4. Writes the result as Hive-partitioned parquet
+   (`cliente_prefijo=.../operacion_prefijo=.../data_N.parquet`) to the
+   refined bucket, via **DuckDB** (see `parquet_io.py`): rows are staged to
+   a local temp NDJSON file, loaded with `read_json_auto`, deduplicated per
+   `deduplication` (drops repeated `interaccion_id`, keeping the row with
+   the latest `interaccion_fecha_fin`, via a `QUALIFY ROW_NUMBER() OVER
+   (...)` window function) and written with a single
+   `COPY (...) TO ... (FORMAT PARQUET, PARTITION_BY (...))` statement, then
+   the resulting file(s) are uploaded to S3. No pandas/numpy anywhere in
+   this pipeline -- `pyarrow` (build kept failing in the CI image) and then
+   `fastparquet`+`cramjam` (worked, but still pandas-based) were both tried
+   and dropped in favor of DuckDB, which needs neither. One tradeoff: the
+   partition columns (`cliente_prefijo`, `operacion_prefijo`) end up both in
+   the S3 key path *and* as regular columns inside each file -- DuckDB's
+   `PARTITION_BY` needs them present in the query to partition by them, and
+   there's no built-in way to drop them afterwards short of a second
+   read/write pass per file. This is a valid, common pattern (Athena/Glue/
+   Spark all handle it), just slightly redundant storage.
+5. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
-7. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
+6. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,
    resolves `params/genesys/api/core.json -> unitary -> params/genesys/api/unitary.json`,
    and returns one entry per conversation with `{conversationId}` filled
    into `/api/v2/quality/conversations/{conversationId}/surveys`. This
@@ -85,8 +93,8 @@ src/
   config.py                # env vars -> Settings, logical->real bucket name resolution
   contract.py               # loads bdo_sac_structure.json, resolves core.json -> unitary.json
   s3_utils.py                # list/read/delete JSON, generic S3 helpers
-  transform.py                 # record -> row mapping, transformations, dedup
-  parquet_io.py                 # DataFrame -> Hive-partitioned parquet on S3
+  transform.py                 # record -> row mapping (rename/cast/transform), pandas-free
+  parquet_io.py                 # rows -> Hive-partitioned parquet on S3, via DuckDB
   step_function.py                # conversation ids -> Step Function payload
 test/
   fixtures/            # copies of the provided contract/config/sample files
@@ -114,9 +122,10 @@ python -m venv .venv
 All mocked (moto for S3) -- no AWS credentials or network access needed.
 Covers: contract/bucket resolution, column renaming/defaults/type casting,
 transformation order (trim -> uppercase -> remove_accents), JSON column
-serialization (the `mensajes` column), deduplication, S3 list/read/delete,
-Step Function URL templating, and a full end-to-end `main.handler` run
-against seeded fixture files.
+serialization (the `mensajes` column), DuckDB-based partitioning/dedup/
+timestamp-casting (`test_parquet_io.py`), S3 list/read/delete, Step
+Function URL templating, and a full end-to-end `main.handler` run against
+seeded fixture files.
 
 ## Formatting & linting
 
@@ -128,8 +137,8 @@ against seeded fixture files.
 ## Deploying
 
 ```bash
-sam build --use-container   # fastparquet's cramjam dependency ships native extensions;
-                              # container build matches them to the Lambda runtime
+sam build --use-container   # duckdb ships a compiled native extension; container
+                              # build matches it to the Lambda runtime
 sam deploy --guided
 ```
 
@@ -141,9 +150,10 @@ buckets, delete on the landing bucket, and put on the refined bucket.
 instead install from [requirements-lambda.txt](requirements-lambda.txt) --
 production dependencies only, no dev/test tooling. That distinction is what
 actually matters for Lambda's 250 MB unzipped deployment-package limit:
-measured locally, `pandas`+`numpy`+`fastparquet`+`cramjam`+`boto3`+
-`botocore` together are ~141 MB, comfortably under the cap, while `moto`
-alone is ~42 MB and the full dev toolchain (`pytest`, `pylint`,
+measured locally, `duckdb`+`boto3`+`botocore` together are only ~66 MB
+(`duckdb` ~37 MB replaced the earlier `pandas`+`numpy`+`fastparquet`+
+`cramjam` stack, which was ~112 MB by itself), comfortably under the cap.
+`moto` alone is ~42 MB and the full dev toolchain (`pytest`, `pylint`,
 `pre-commit`, `black`, `flake8`, `isort`, `boto3-stubs`, ...) adds up to
 ~75 MB more -- accidentally bundling that dev group is what actually risks
-tripping the limit.
+tripping the limit, not the production dependencies.
