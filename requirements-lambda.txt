@@ -1,9 +1,16 @@
 # Deployment-package manifest -- what the CI packaging step should actually
 # `pip install -t <dist>` and zip. Deliberately narrower than requirements.txt:
-# boto3 is NOT listed -- the Lambda Python runtime already ships boto3/botocore
-# preinstalled, so bundling it too just wastes space (botocore's service-model
-# data alone commonly adds 60-100+ MB) and risks tripping Lambda's 250 MB
-# unzipped deployment-package limit for no benefit.
+# excludes dev-only tooling (pytest, moto, black, flake8, pylint, isort,
+# pre-commit, boto3-stubs, ...), which is what was actually pushing past
+# Lambda's 250 MB unzipped deployment-package limit -- moto alone is ~42 MB,
+# and the full dev toolchain adds up to ~75 MB of stuff that has no reason
+# to be in a deployed Lambda.
+#
+# boto3/botocore ARE included here even though the Lambda Python runtime
+# already ships them, because pinning our own copy (~29 MB) guarantees a
+# known API surface for future code instead of depending on whatever
+# version happens to be baked into the runtime at deploy time.
+boto3>=1.34
 pandas>=2.2
 fastparquet>=2024.5.0
 python-dateutil>=2.9

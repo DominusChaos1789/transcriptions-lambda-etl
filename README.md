@@ -136,8 +136,14 @@ sam deploy --guided
 `template.yaml` grants the function: read+list on the landing/resources
 buckets, delete on the landing bucket, and put on the refined bucket.
 
-`requirements.txt` is for local dev/tests. The CI packaging step should
-instead install from [requirements-lambda.txt](requirements-lambda.txt),
-which deliberately excludes `boto3` (already provided by the Lambda Python
-runtime) to help stay under Lambda's 250 MB unzipped deployment-package
-limit.
+`requirements.txt` is for local dev/tests (includes `pytest`/`moto`/
+`black`/etc. via `requirements-dev.txt`). The CI packaging step should
+instead install from [requirements-lambda.txt](requirements-lambda.txt) --
+production dependencies only, no dev/test tooling. That distinction is what
+actually matters for Lambda's 250 MB unzipped deployment-package limit:
+measured locally, `pandas`+`numpy`+`fastparquet`+`cramjam`+`boto3`+
+`botocore` together are ~141 MB, comfortably under the cap, while `moto`
+alone is ~42 MB and the full dev toolchain (`pytest`, `pylint`,
+`pre-commit`, `black`, `flake8`, `isort`, `boto3-stubs`, ...) adds up to
+~75 MB more -- accidentally bundling that dev group is what actually risks
+tripping the limit.
