@@ -5,9 +5,9 @@ import tempfile
 import duckdb
 import pytest
 
-from contract import Contract
-from parquet_io import write_hive_parquet
-from transform import build_rows
+from src.contract import Contract
+from src.parquet_io import write_hive_parquet
+from src.transform import build_rows
 from test.conftest import load_fixture
 
 

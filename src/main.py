@@ -14,12 +14,12 @@ import logging
 
 import boto3
 
-import s3_utils
-from config import load_settings
-from contract import load_contract, load_unitary_endpoint
-from parquet_io import write_hive_parquet
-from step_function import build_step_function_payload
-from transform import build_rows
+import src.s3_utils as s3_utils
+from src.config import load_settings
+from src.contract import load_contract, load_unitary_endpoint
+from src.parquet_io import write_hive_parquet
+from src.step_function import build_step_function_payload
+from src.transform import build_rows
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

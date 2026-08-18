@@ -1,4 +1,4 @@
-from step_function import build_step_function_payload
+from src.step_function import build_step_function_payload
 from test.conftest import load_fixture
 
 

@@ -1,5 +1,5 @@
-from config import load_settings
-from contract import load_contract, load_unitary_endpoint
+from src.config import load_settings
+from src.contract import load_contract, load_unitary_endpoint
 
 
 def test_resolve_bucket_prefixes_logical_name():

@@ -4,8 +4,8 @@ import tempfile
 
 import duckdb
 
-import s3_utils
-from main import handler
+import src.s3_utils as s3_utils
+from src.main import handler
 from test.conftest import LANDING_BUCKET, REFINED_BUCKET, SOURCE_PREFIX
 
 

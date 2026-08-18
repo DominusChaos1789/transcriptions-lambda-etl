@@ -5,8 +5,8 @@ resulting parquet table gets written."""
 from dataclasses import dataclass
 from typing import Any
 
-import s3_utils
-from config import Settings
+import src.s3_utils as s3_utils
+from src.config import Settings
 
 
 @dataclass(frozen=True)

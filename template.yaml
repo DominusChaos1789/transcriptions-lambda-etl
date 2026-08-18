@@ -25,8 +25,16 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: bdo-transcripciones-etl
-      Handler: main.handler
-      CodeUri: src/
+      Handler: src.main.handler
+      # CodeUri is the project root (not src/) so the built zip contains
+      # src/ as a real subfolder -- required for `import src.xxx`-style
+      # absolute imports and Handler `src.main.handler` to resolve. Note:
+      # the actual deployment for this function goes through a separate
+      # Jenkins pipeline that assembles its own zip, not `sam build`/`sam
+      # deploy` -- this template documents the equivalent Handler/env/IAM
+      # contract. If you do `sam build` from here, exclude test/, .venv/,
+      # .git/ etc. first (SAM's default Python builder does not).
+      CodeUri: .
       # duckdb ships a compiled native extension; if wheels aren't resolving
       # for the build image's Python, build with `sam build --use-container`
       # (or an equivalent manylinux build) so the wheel matches the Lambda

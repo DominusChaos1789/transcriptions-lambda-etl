@@ -1,4 +1,4 @@
-import s3_utils
+import src.s3_utils as s3_utils
 
 BUCKET = "augusta-nexa-dev-providers-landing"
 PREFIX = "external/datanexa/transacciones/empatia/transcripciones/BDO"

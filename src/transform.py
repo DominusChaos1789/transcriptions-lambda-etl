@@ -13,7 +13,7 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
-from contract import Contract
+from src.contract import Contract
 
 CONVERSATION_ID_COLUMN = "conversacion_id"
 

@@ -84,11 +84,19 @@ survey API for every conversation in the batch.
 
 ## Layout
 
-Flat module layout (not a package) so the Lambda's Handler setting is simply
-`main.handler` -- `CodeUri: src/` puts these directly at the zip root:
+`src/` is a real Python package (`src/__init__.py`), imported as `src.*` --
+Lambda's Handler is `src.main.handler`, and every module uses absolute
+`src.`-prefixed imports for its siblings (e.g. `from src.contract import
+Contract`), never bare/relative ones. This matches how the function is
+actually deployed: the packaged zip has `src/` as a real subfolder at its
+root (not flattened), because the real deployment for this Lambda goes
+through a separate Jenkins pipeline, not `sam build`/`sam deploy` --
+`template.yaml` documents the equivalent Handler/env/IAM contract, it
+isn't the literal build mechanism.
 
 ```
 src/
+  __init__.py              # makes src/ an actual package
   main.py                 # orchestrates the below; `handler(event, context)` entrypoint
   config.py                # env vars -> Settings, logical->real bucket name resolution
   contract.py               # loads bdo_sac_structure.json, resolves core.json -> unitary.json
@@ -98,8 +106,9 @@ src/
   step_function.py                # conversation ids -> Step Function payload
 test/
   fixtures/            # copies of the provided contract/config/sample files
-  test_*.py            # pytest unit tests (moto-mocked S3, no real AWS calls)
-template.yaml         # AWS SAM deployment definition
+  test_*.py            # pytest unit tests (moto-mocked S3, no real AWS calls) -- import from
+                        # src.* too, e.g. `from src.main import handler`
+template.yaml         # AWS SAM deployment definition (reference; see note above)
 ```
 
 ## Environment variables
@@ -124,8 +133,8 @@ Covers: contract/bucket resolution, column renaming/defaults/type casting,
 transformation order (trim -> uppercase -> remove_accents), JSON column
 serialization (the `mensajes` column), DuckDB-based partitioning/dedup/
 timestamp-casting (`test_parquet_io.py`), S3 list/read/delete, Step
-Function URL templating, and a full end-to-end `main.handler` run against
-seeded fixture files.
+Function URL templating, and a full end-to-end `src.main.handler` run
+against seeded fixture files.
 
 ## Formatting & linting
 

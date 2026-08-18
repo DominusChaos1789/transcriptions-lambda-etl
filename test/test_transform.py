@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from contract import Contract
-from transform import build_rows
+from src.contract import Contract
+from src.transform import build_rows
 from test.conftest import load_fixture
 
 
