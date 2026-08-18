@@ -7,7 +7,7 @@ builds the per-conversation payload a Step Function uses to call Genesys'
 survey API for every conversation in the batch.
 
 - **Source**: `s3://augusta-nexa-dev-providers-landing/external/datanexa/transacciones/empatia/transcripciones/BDO/*.json`
-- **Target**: `s3://augusta-nexa-dev-refined/transacciones/empatia/transcripciones/BDO/SAC/year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
+- **Target**: `s3://augusta-nexa-dev-refined/transacciones/empatia/transcripciones/cliente_prefijo=BDO/operacion_prefijo=SAC/year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
 - **Contract**: `s3://augusta-nexa-dev-resources/contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json`
 
 > The contract's `output_append.prefix_pattern` (`transacciones/empatia/transcripciones`)
@@ -37,30 +37,26 @@ survey API for every conversation in the batch.
    `caso_uso_id`, `canal`, `origen`), casts types (`string`/`integer`/
    `timestamp`/`json`), then applies `transformations` (trim, uppercase,
    remove_accents) in the order they appear in the contract.
-4. Writes the result as partitioned parquet to the refined bucket, via
-   **DuckDB** (see `parquet_io.py`):
-   `<prefix>/<partition_col_1_value>/<partition_col_2_value>/.../year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
-   -- e.g. `.../BDO/SAC/year=2026/month=08/day=18/transcripciones_20260818T153045Z.parquet`.
+4. Writes the result as Hive-partitioned parquet to the refined bucket,
+   via **DuckDB** (see `parquet_io.py`):
+   `<prefix>/<col_1>=<value_1>/<col_2>=<value_2>/.../year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet`
+   -- e.g. `.../cliente_prefijo=BDO/operacion_prefijo=SAC/year=2026/month=08/day=18/transcripciones_20260818T153045Z.parquet`.
    `partition_cols` (`cliente_prefijo`, `operacion_prefijo` per the
-   contract's `output.iceberg.partition_by`) become **bare-value**
-   directory segments (just `BDO`/`SAC`, no `cliente_prefijo=` prefix);
-   `year=`/`month=`/`day=` are always appended as real Hive-style
-   key=value segments based on the **processing date** (UTC, when the
-   Lambda runs) -- not any field in the data, and not contract-configurable.
-   Since DuckDB's native `PARTITION_BY` always emits `col=value` for every
-   column, getting bare-value segments means grouping the rows by distinct
-   partition-value combinations manually (`SELECT DISTINCT ...`, then one
-   `COPY ... WHERE ...` per group) instead of a single `PARTITION_BY` copy
-   -- which conveniently also means `cliente_prefijo`/`operacion_prefijo`
-   can be cleanly `EXCLUDE`d from the file content this time (no longer
-   duplicated between the S3 path and the file's own columns). Rows are
-   staged to a local temp NDJSON file first (DuckDB's `read_json_auto`
-   needs a real file), and dedup happens once, before splitting into
-   groups, via a `QUALIFY ROW_NUMBER() OVER (...)` window function.
-   No pandas/numpy anywhere in this pipeline -- `pyarrow` (build kept
-   failing in the CI image) and then `fastparquet`+`cramjam` (worked, but
-   still pandas-based) were both tried and dropped in favor of DuckDB,
-   which needs neither.
+   contract's `output.iceberg.partition_by`) and `year=`/`month=`/`day=`
+   are all real Hive-style key=value segments; the date is always the
+   **processing date** (UTC, when the Lambda runs) -- not any field in the
+   data, and not contract-configurable. Partition columns are excluded
+   from each file's own schema (already encoded in the path) -- DuckDB's
+   native `PARTITION_BY` doesn't offer that, so this groups the rows by
+   distinct partition-value combinations manually (`SELECT DISTINCT ...`,
+   then one `COPY ... WHERE ...` per group) instead of a single
+   `PARTITION_BY` copy. Rows are staged to a local temp NDJSON file first
+   (DuckDB's `read_json_auto` needs a real file), and dedup happens once,
+   before splitting into groups, via a `QUALIFY ROW_NUMBER() OVER (...)`
+   window function. No pandas/numpy anywhere in this pipeline -- `pyarrow`
+   (build kept failing in the CI image) and then `fastparquet`+`cramjam`
+   (worked, but still pandas-based) were both tried and dropped in favor
+   of DuckDB, which needs neither.
 5. **Deletes the source JSON objects** from the landing bucket once the
    parquet write succeeds.
 6. Collects every `conversacion_id` (`genesys_cloud_id`) seen in the batch,

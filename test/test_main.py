@@ -39,10 +39,13 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
     remaining = s3_utils.list_json_keys(s3, LANDING_BUCKET, SOURCE_PREFIX)
     assert remaining == []
 
-    # Parquet was written partitioned by BDO/SAC (bare values, from the
-    # contract) then year=/month=/day= (processing date).
+    # Parquet was written Hive-partitioned by cliente_prefijo/operacion_prefijo
+    # (from the contract) then year=/month=/day= (processing date).
     assert len(result["output_keys"]) >= 1
-    expected_prefix = f"transacciones/empatia/transcripciones/BDO/SAC/{_expected_date_path()}/"
+    expected_prefix = (
+        f"transacciones/empatia/transcripciones/cliente_prefijo=BDO/"
+        f"operacion_prefijo=SAC/{_expected_date_path()}/"
+    )
     for key in result["output_keys"]:
         assert key.startswith(expected_prefix)
         filename = key.rsplit("/", 1)[-1]

@@ -50,7 +50,10 @@ def test_write_hive_parquet_partitions_by_configured_columns(aws, contract):
     )
 
     assert len(keys) >= 1
-    expected_prefix = f"transacciones/empatia/transcripciones/BDO/SAC/{_expected_date_path()}/"
+    expected_prefix = (
+        f"transacciones/empatia/transcripciones/cliente_prefijo=BDO/"
+        f"operacion_prefijo=SAC/{_expected_date_path()}/"
+    )
     for key in keys:
         assert key.startswith(expected_prefix)
         filename = key.rsplit("/", 1)[-1]

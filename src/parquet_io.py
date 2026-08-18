@@ -1,18 +1,22 @@
-"""Writes rows to S3 as partitioned parquet, via DuckDB.
+"""Writes rows to S3 as Hive-partitioned parquet, via DuckDB.
 
 Output layout is:
 
-    <prefix>/<partition_col_1_value>/<partition_col_2_value>/.../
+    <prefix>/<col_1>=<value_1>/<col_2>=<value_2>/.../
         year=YYYY/month=MM/day=DD/transcripciones_<timestamp>.parquet
 
-`partition_cols` (e.g. cliente_prefijo, operacion_prefijo) become bare
-directory segments (their value only, no "col=" prefix) -- year/month/day
-are always appended as real Hive-style key=value segments, based on the
-processing date (UTC, when this function runs), not any field in the
-data. Since DuckDB's native PARTITION_BY always emits "col=value" for
-every column, getting the bare-value segments means grouping the rows by
-partition value combinations manually (one COPY per group) instead of a
-single PARTITION_BY COPY.
+e.g. .../cliente_prefijo=BDO/operacion_prefijo=SAC/year=2026/month=08/day=18/
+transcripciones_20260818T153045Z.parquet. `partition_cols` (from the
+contract) and year/month/day are all real Hive-style key=value segments.
+year/month/day are based on the processing date (UTC, when this function
+runs), not any field in the data -- constant for the whole batch, not
+contract-configurable.
+
+Partition columns are excluded from each file's own schema (they're
+already encoded in the S3 key path) -- DuckDB's native PARTITION_BY
+doesn't offer that, so this groups the rows by distinct partition-column
+combinations manually (SELECT DISTINCT, then one COPY ... WHERE ... per
+group) instead of a single PARTITION_BY COPY.
 
 DuckDB (not pandas/pyarrow/fastparquet) does the ingestion, dedup, and
 parquet write. DuckDB's read_json_auto needs a real file, not an
@@ -128,7 +132,7 @@ def write_hive_parquet(
                         params.append(value)
                 where_clause = f" WHERE {' AND '.join(where_terms)}" if where_terms else ""
 
-                partition_path = "/".join(str(value) for value in combo)
+                partition_path = "/".join(f"{col}={value}" for col, value in zip(partition_cols, combo))
                 key_prefix = (
                     f"{prefix}/{partition_path}/{date_path}" if partition_path else f"{prefix}/{date_path}"
                 )
