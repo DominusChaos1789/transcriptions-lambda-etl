@@ -30,7 +30,7 @@ def _expected_date_path() -> str:
 
 @pytest.fixture
 def contract():
-    raw = load_fixture("bdo_sac_structure.json")
+    raw = load_fixture("transcripcion.json")
     return Contract(raw=raw)
 
 
@@ -46,7 +46,7 @@ def test_write_hive_parquet_partitions_by_configured_columns(aws, contract):
         "transacciones/empatia/transcripciones",
         partition_cols=contract.partition_by,
         column_types=contract.column_types,
-        dedup=contract.deduplication,
+        filename_prefix="transcripciones",
     )
 
     assert len(keys) >= 1
@@ -86,7 +86,6 @@ def test_write_hive_parquet_does_not_infer_uuid_type_for_string_columns(aws, con
         "p",
         partition_cols=contract.partition_by,
         column_types=contract.column_types,
-        dedup=contract.deduplication,
     )
 
     body = s3.get_object(Bucket="augusta-nexa-dev-refined", Key=keys[0])["Body"].read()
@@ -112,39 +111,12 @@ def test_write_hive_parquet_casts_timestamp_columns(aws, contract):
         "p",
         partition_cols=contract.partition_by,
         column_types=contract.column_types,
-        dedup=contract.deduplication,
     )
 
     written = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])[0]
     import datetime
 
     assert isinstance(written["interaccion_fecha_inicio"], datetime.datetime)
-
-
-def test_write_hive_parquet_dedup_keeps_latest_fecha_fin(aws, contract):
-    s3 = aws["s3"]
-    older = load_fixture("sample_transcription_1.json")
-    newer = dict(older)
-    newer["exported_at"] = "2026-08-16T20:00:00-05:00"
-    newer["interaction_result"] = "actualizado"
-
-    rows, _ = build_rows([older, newer], contract)
-    keys = write_hive_parquet(
-        s3,
-        rows,
-        "augusta-nexa-dev-refined",
-        "dedup",
-        partition_cols=contract.partition_by,
-        column_types=contract.column_types,
-        dedup=contract.deduplication,
-    )
-
-    written_rows = []
-    for key in keys:
-        written_rows.extend(_read_parquet_rows(s3, "augusta-nexa-dev-refined", key))
-
-    assert len(written_rows) == 1
-    assert written_rows[0]["interaccion_resultado"] == "actualizado"
 
 
 def test_write_hive_parquet_empty_rows_writes_nothing(aws, contract):
@@ -166,10 +138,19 @@ def test_write_hive_parquet_without_partition_columns_writes_a_single_file(aws):
     keys = write_hive_parquet(s3, rows, "augusta-nexa-dev-refined", "flat")
 
     assert len(keys) == 1
-    assert keys[0].startswith(f"flat/{_expected_date_path()}/transcripciones_")
+    assert keys[0].startswith(f"flat/{_expected_date_path()}/part_")
     assert keys[0].endswith(".parquet")
     written_rows = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])
     assert len(written_rows) == 2
+
+
+def test_write_hive_parquet_uses_custom_filename_prefix(aws):
+    s3 = aws["s3"]
+    rows = [{"a": "x"}]
+
+    keys = write_hive_parquet(s3, rows, "augusta-nexa-dev-refined", "p", filename_prefix="atributos")
+
+    assert keys[0].rsplit("/", 1)[-1].startswith("atributos_")
 
 
 def test_write_hive_parquet_json_column_round_trips(aws, contract):
@@ -184,10 +165,29 @@ def test_write_hive_parquet_json_column_round_trips(aws, contract):
         "p",
         partition_cols=contract.partition_by,
         column_types=contract.column_types,
-        dedup=contract.deduplication,
     )
 
     written = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])[0]
     messages = json.loads(written["mensajes"])
     assert messages[0]["role"] == "assistant"
     assert len(messages) == 4
+
+
+def test_write_hive_parquet_ignores_column_types_not_present_in_rows(aws):
+    # column_types may legitimately be broader than what a given set of
+    # rows carries (e.g. output_core's technical types reused for
+    # output_atts rows) -- extra entries should be silently ignored,
+    # not crash with a DuckDB "column not found" error.
+    s3 = aws["s3"]
+    rows = [{"a": "x"}]
+
+    keys = write_hive_parquet(
+        s3,
+        rows,
+        "augusta-nexa-dev-refined",
+        "p",
+        column_types={"a": "string", "atributo_valor": "string"},
+    )
+
+    written = _read_parquet_rows(s3, "augusta-nexa-dev-refined", keys[0])
+    assert written == [{"a": "x"}]

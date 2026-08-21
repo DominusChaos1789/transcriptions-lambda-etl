@@ -5,25 +5,25 @@
   "file_group": "Catalogos",
   "client_prefix": "BDO",
   "operation_prefix": "SAC",
-  "operation_segment": "Homologacion",
-  "operation_process": "ConversacionesBot",
-  "domain_name": "transcripciones",
+  "operation_segment": "Servicio al Cliente",
+  "operation_process": "EmpatIA",
+  "domain_name": "transacciones",
+  "channel_id": "VOZ",
+  "channel_provider": "Genesys-Accenture",
+  "handling_process_type": "VoiceBot",
   "enabled": true,
   "contract_version": "1.0.0",
   "genesys_cloud_organization": "org-3",
-
   "source": {
     "bucket_name": "providers-landing",
     "prefix_pattern": "external/datanexa/transacciones/empatia/transcripciones/BDO",
-    "file_pattern": "*.json"
+    "file_pattern": "all-files"
   },
-
   "format": {
     "allowed_types": [
       "json"
     ]
   },
-
   "columns": [
     {
       "position": 1,
@@ -215,7 +215,6 @@
       "default_value": "GENESYS_CLOUD"
     }
   ],
-
   "transformations": [
     {
       "type": "trim",
@@ -236,7 +235,6 @@
       "selector": "all-string"
     }
   ],
-
   "quality": {
     "enable": true,
     "rules": [
@@ -268,7 +266,6 @@
       }
     ]
   },
-
   "encryption": {
     "enabled": true,
     "mode": "AES_GCM_ENVELOPE",
@@ -287,7 +284,6 @@
       "file_group"
     ]
   },
-
   "deduplication": {
     "enabled": true,
     "method": "DROP",
@@ -297,14 +293,10 @@
     "order_by": [
       "interaccion_fecha_fin"
     ],
-    "order_type": [
-      "desc"
-    ]
+    "order_type": "desc"
   },
-
   "output": {
     "mode": "ICEBERG_DYNAMO",
-
     "iceberg": {
       "catalog": "transacciones",
       "database": "transcripciones",
@@ -314,7 +306,6 @@
         "operacion_prefijo"
       ]
     },
-
     "dynamodb": {
       "enabled": true,
       "table": "interactions",
@@ -326,10 +317,202 @@
       ]
     }
   },
-
-  "output_append": {
+  "output_core": {
     "bucket_name": "refined",
-    "prefix_pattern": "transacciones/empatia/transcripciones",
-    "file_pattern": "parquet"
+    "prefix_pattern": "transacciones/parquet/transcripciones_core",
+    "file_pattern": "parquet",
+    "output_name_file": "transcripciones",
+    "technical_col_keep": [
+      "canal_id",
+      "gestion_tipo",
+      "canal_proveedor",
+      "gestion_canal",
+      "base_fecha_id",
+      "ejecucion_id",
+      "registro_id",
+      "registro_hash",
+      "cliente_prefijo",
+      "operacion_prefijo",
+      "operacion_segmento",
+      "operacion_proceso",
+      "base_grupo",
+      "base_proceso",
+      "base_nombre",
+      "base_id",
+      "cargue_id",
+      "cargue_fecha",
+      "cargue_fecha_id",
+      "parquet_nombre"
+    ]
+  },
+  "output_atts": {
+    "bucket_name": "refined",
+    "prefix_pattern": "transacciones/parquet/transcripciones_atts",
+    "file_pattern": "parquet",
+    "output_name_file": "transcripciones",
+    "technical_col_keep": [
+      "ejecucion_id",
+      "registro_id",
+      "registro_hash",
+      "base_id",
+      "cargue_id",
+      "cliente_prefijo",
+      "operacion_prefijo",
+      "operacion_segmento",
+      "archivo_fecha_id",
+      "atributo_nombre",
+      "atributo_valor",
+      "atributo_tipo",
+      "atributo_posicion",
+      "parquet_nombre"
+    ]
+  },
+  "technical_columns": {
+    "ejecucion_id": {
+      "calculus_type": "execution_id",
+      "description": "ID de Ejecución Generado por AWS"
+    },
+    "registro_id": {
+      "calculus_type": "uniqe",
+      "description": "Identificador único del registro dentro de la base, se cálcula usando hashlib.sha256"
+    },
+    "registro_hash": {
+      "calculus_type": "concatetation",
+      "delimiter": "#",
+      "columns": [
+        "cargue_id",
+        "registro_id"
+      ],
+      "description": "Identificar único del registro para diferenciarlo de otras bases, se cálcula usando hashlib.sha256"
+    },
+    "cliente_prefijo": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "client_prefix"
+      ],
+      "description": "Sigla de tres caracteres que identifica a cada cliente"
+    },
+    "operacion_prefijo": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "operation_prefix"
+      ],
+      "description": "Sigla de tres caracteres que identifica a cada operación Ejemplos: SAC, COB, VEN"
+    },
+    "operacion_segmento": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "operation_segment"
+      ],
+      "description": "Segemento de cada operación  Ejemplos: Temprana, Castigo, Leads"
+    },
+    "operacion_proceso": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "operation_process"
+      ],
+      "description": "Valor que permite identificar dentro de cada segmento de peración a que proceso pertenece"
+    },
+    "base_id": {
+      "calculus_type": "concatetation",
+      "delimiter": "#",
+      "columns": [
+        "client_prefix",
+        "operation_prefix",
+        "operation_segment",
+        "operation_process"
+      ],
+      "description": "Identificar de la base de datos, se cálcula usando hashlib.sha256"
+    },
+    "base_grupo": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "No apply"
+      ],
+      "description": "Aplica para la información de ventas y cobranza"
+    },
+    "base_fecha_id": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "No apply"
+      ],
+      "description": "Fecha a la que pertenece el archivo."
+    },
+    "base_proceso": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "No apply"
+      ],
+      "description": "Aplica para la información de ventas y cobranza"
+    },
+    "base_nombre": {
+      "calculus_type": "file_name",
+      "description": "Nombre de archivo fuente de la información"
+    },
+    "cargue_id": {
+      "calculus_type": "concatetation",
+      "delimiter": "#",
+      "columns": [
+        "base_id",
+        "cargue_fecha_id"
+      ],
+      "description": "Identificar de la base de datos"
+    },
+    "cargue_fecha": {
+      "calculus_type": "file_landing_date",
+      "description": "Nombre de archivo fuente de la información, Se debe alamacenar como datetime"
+    },
+    "cargue_fecha_id": {
+      "calculus_type": "file_landing_date",
+      "description": "Fecha en la que se proceso el archivo en formato date yyyy-mm-dd, Se debe alamacenar como datetime"
+    },
+    "archivo_fecha": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "cargue_fecha"
+      ],
+      "description": "Fecha en la que llegó el archivo"
+    },
+    "archivo_fecha_id": {
+      "calculus_type": "file_landing_date",
+      "description": "Fecha en la que llegó el archivo, formato date yyyy-mm-dd"
+    },
+    "parquet_nombre": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "output_core[output_name_file]",
+        "output_atts[output_name_file]"
+      ]
+    },
+    "canal_id": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "channel_id"
+      ],
+      "description": "Para las transacciones se debe adicionar gestion_canal y canal_id"
+    },
+    "canal_proveedor": {
+      "calculus_type": "field_mapping",
+      "columns": [
+        "channel_provider"
+      ],
+      "description": "Para las transacciones se debe adicionar canal_proveedor,Genesys..."
+    },
+    "atributo_nombre": {
+      "calculus_type": "column_name",
+      "description": "Captura nombre de la columna"
+    },
+    "atributo_tipo": {
+      "calculus_type": "column_type_data",
+      "description": "Captura tipo de la columna int, float, date, datetime"
+    },
+    "atributo_posicion": {
+      "calculus_type": "column_index_position_map",
+      "description": "Mapea la posicion del las columnas."
+    },
+    "atributo_valor": {
+      "calculus_type": "column_value",
+      "description": "Mapea la el valor del campo"
+    }
   }
 }

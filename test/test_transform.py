@@ -3,13 +3,13 @@ import json
 import pytest
 
 from src.contract import Contract
-from src.transform import build_rows
+from src.transform import build_rows, dedup_rows
 from test.conftest import load_fixture
 
 
 @pytest.fixture
 def contract():
-    raw = load_fixture("bdo_sac_structure.json")
+    raw = load_fixture("transcripcion.json")
     return Contract(raw=raw)
 
 
@@ -79,3 +79,40 @@ def test_non_required_missing_field_is_none(contract):
     record.pop("interaction_result")
     rows, _ = build_rows([record], contract)
     assert rows[0]["interaccion_resultado"] in (None, "")
+
+
+def test_dedup_rows_keeps_latest_fecha_fin(contract):
+    older = load_fixture("sample_transcription_1.json")
+    newer = dict(older)
+    newer["exported_at"] = "2026-08-16T20:00:00-05:00"
+    newer["interaction_result"] = "actualizado"
+
+    rows, _ = build_rows([older, newer], contract)
+    deduped = dedup_rows(rows, contract.deduplication)
+
+    assert len(deduped) == 1
+    assert deduped[0]["interaccion_resultado"] == "actualizado"
+
+
+def test_dedup_rows_keeps_distinct_keys(records, contract):
+    rows, _ = build_rows(records, contract)
+    deduped = dedup_rows(rows, contract.deduplication)
+    assert len(deduped) == 2
+
+
+def test_dedup_rows_disabled_returns_all_rows(records, contract):
+    rows, _ = build_rows(records, contract)
+    deduped = dedup_rows(rows, {"enabled": False})
+    assert len(deduped) == len(rows)
+
+
+def test_dedup_rows_accepts_order_type_as_plain_string(contract):
+    # The new contract shape has "order_type": "desc" (a string), not a list.
+    older = load_fixture("sample_transcription_1.json")
+    newer = dict(older)
+    newer["exported_at"] = "2026-08-16T20:00:00-05:00"
+
+    rows, _ = build_rows([older, newer], contract)
+    assert isinstance(contract.deduplication["order_type"], str)
+    deduped = dedup_rows(rows, contract.deduplication)
+    assert len(deduped) == 1

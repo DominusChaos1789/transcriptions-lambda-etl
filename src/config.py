@@ -7,7 +7,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Settings:
     # Contract buckets/resources are declared with short logical names inside
-    # bdo_sac_structure.json (e.g. "providers-landing", "refined", "resources").
+    # transcripcion.json (e.g. "providers-landing", "refined", "resources").
     # Actual bucket names are that logical name prefixed with ENV_PREFIX.
     env_prefix: str
     resources_bucket: str
@@ -27,7 +27,7 @@ def load_settings() -> Settings:
     resources_bucket = os.environ.get("RESOURCES_BUCKET", f"{env_prefix}resources")
     contract_key = os.environ.get(
         "CONTRACT_KEY",
-        "contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json",
+        "contracts/transacciones/empatia/transcripciones/bdo/sac/transcripcion.json",
     )
     core_config_key = os.environ.get("CORE_CONFIG_KEY", "params/genesys/api/core.json")
     return Settings(

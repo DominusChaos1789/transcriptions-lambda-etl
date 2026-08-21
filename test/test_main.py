@@ -33,35 +33,55 @@ def test_lambda_handler_end_to_end(aws, seeded_source_files):
 
     assert result["processed_files"] == 2
     assert result["deleted_source_files"] == 2
-    assert result["output_bucket"] == REFINED_BUCKET
+    assert result["output_core_bucket"] == REFINED_BUCKET
+    assert result["output_atts_bucket"] == REFINED_BUCKET
 
     # Source objects are cleaned up after a successful load.
     remaining = s3_utils.list_json_keys(s3, LANDING_BUCKET, SOURCE_PREFIX)
     assert remaining == []
 
-    # Parquet was written Hive-partitioned by cliente_prefijo/operacion_prefijo
+    # output_core: Hive-partitioned by cliente_prefijo/operacion_prefijo
     # (from the contract) then year=/month=/day= (processing date).
-    assert len(result["output_keys"]) >= 1
-    expected_prefix = (
-        f"transacciones/empatia/transcripciones/cliente_prefijo=BDO/"
+    assert len(result["output_core_keys"]) >= 1
+    core_prefix = (
+        f"transacciones/parquet/transcripciones_core/cliente_prefijo=BDO/"
         f"operacion_prefijo=SAC/{_expected_date_path()}/"
     )
-    for key in result["output_keys"]:
-        assert key.startswith(expected_prefix)
-        filename = key.rsplit("/", 1)[-1]
-        assert filename.startswith("transcripciones_")
-        assert filename.endswith(".parquet")
+    for key in result["output_core_keys"]:
+        assert key.startswith(core_prefix)
+        assert key.rsplit("/", 1)[-1].startswith("transcripciones_")
 
-    total_rows = 0
-    for key in result["output_keys"]:
+    total_core_rows = 0
+    for key in result["output_core_keys"]:
         written_rows = _read_parquet_rows(s3, REFINED_BUCKET, key)
-        total_rows += len(written_rows)
+        total_core_rows += len(written_rows)
         for row in written_rows:
             assert "conversacion_id" in row
+            # technical columns are present alongside the business ones
+            assert "ejecucion_id" in row
+            assert "registro_hash" in row
             if row["interaccion_id"] == "5624561b59ae99a0fae1e65cc206e4a1":
                 assert row["consumidor_id"] == "14984986"
                 assert json.loads(row["mensajes"])[0]["role"] == "assistant"
-    assert total_rows == 2
+    assert total_core_rows == 2
+
+    # output_atts: one EAV row per business column per source row
+    # (18 columns * 2 rows).
+    assert len(result["output_atts_keys"]) >= 1
+    atts_prefix = (
+        f"transacciones/parquet/transcripciones_atts/cliente_prefijo=BDO/"
+        f"operacion_prefijo=SAC/{_expected_date_path()}/"
+    )
+    total_atts_rows = 0
+    for key in result["output_atts_keys"]:
+        assert key.startswith(atts_prefix)
+        written_rows = _read_parquet_rows(s3, REFINED_BUCKET, key)
+        total_atts_rows += len(written_rows)
+        for row in written_rows:
+            assert row["atributo_nombre"]
+            assert row["atributo_tipo"]
+            assert row["atributo_posicion"] is not None
+    assert total_atts_rows == 18 * 2
 
     # Step function payload covers both conversations found in this batch.
     assert sorted(result["conversation_ids"]) == sorted(

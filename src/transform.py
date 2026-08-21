@@ -1,17 +1,16 @@
 """Turns raw landing-bucket transcription JSON records into rows matching
 the contract's target schema: rename via `columns`, stamp constants, apply
 `transformations`, and hand back the parquet-ready rows plus the list of
-conversation ids seen in this batch.
+conversation ids seen in this batch. Also dedups rows per the contract's
+`deduplication` block.
 
-Deliberately pandas-free: rows are plain dicts all the way through. Dedup
-and the actual parquet write happen downstream in parquet_io.py, via
-DuckDB.
+Deliberately pandas-free: rows are plain dicts all the way through.
 """
 
 import json
 import unicodedata
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from src.contract import Contract
 
@@ -100,3 +99,50 @@ def build_rows(records: list[dict], contract: Contract) -> tuple[list[dict], lis
 
     unique_conversation_ids = sorted(set(conversation_ids))
     return rows, unique_conversation_ids
+
+
+def _dedup_comparator(order_by: list[str], reverse_flags: list[bool]):
+    def compare(row_a: dict, row_b: dict) -> int:
+        for col, reverse in zip(order_by, reverse_flags):
+            a, b = row_a.get(col), row_b.get(col)
+            if a == b:
+                continue
+            if a is None:
+                result = 1
+            elif b is None:
+                result = -1
+            else:
+                result = -1 if a < b else 1
+            return -result if reverse else result
+        return 0
+
+    return compare
+
+
+def dedup_rows(rows: list[dict], dedup: Optional[dict]) -> list[dict]:
+    """Keeps one row per `record_key` group, per `order_by`/`order_type`
+    (higher-priority columns first; "desc" keeps the largest value).
+    `order_type` may be a single string or a list, one per order_by column."""
+    if not dedup or not dedup.get("enabled"):
+        return rows
+
+    record_key = dedup.get("record_key", [])
+    if not record_key:
+        return rows
+
+    order_by = dedup.get("order_by", [])
+    order_type = dedup.get("order_type", [])
+    if isinstance(order_type, str):
+        order_type = [order_type]
+    reverse_flags = [
+        order_type[i].lower() == "desc" if i < len(order_type) else False for i in range(len(order_by))
+    ]
+    is_better = _dedup_comparator(order_by, reverse_flags)
+
+    best_by_key: dict[tuple, dict] = {}
+    for row in rows:
+        key = tuple(row.get(c) for c in record_key)
+        current_best = best_by_key.get(key)
+        if current_best is None or is_better(row, current_best) < 0:
+            best_by_key[key] = row
+    return list(best_by_key.values())

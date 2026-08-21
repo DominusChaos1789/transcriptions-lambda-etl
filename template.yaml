@@ -2,8 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Loads BDO SAC transcripciones JSON from the landing bucket, renames
-  columns per the bdo_sac_structure.json contract, writes a
-  Hive-partitioned parquet dataset to the refined bucket, cleans up the
+  columns and computes technical/audit columns per the transcripcion.json
+  contract, writes two Hive-partitioned parquet outputs to the refined
+  bucket (output_core and the output_atts EAV pivot), cleans up the
   source objects, and returns the per-conversation Genesys "surveys" call
   list for a downstream Step Function.
 
@@ -45,7 +46,7 @@ Resources:
         Variables:
           ENV_PREFIX: !Ref EnvPrefix
           RESOURCES_BUCKET: !Sub "${EnvPrefix}resources"
-          CONTRACT_KEY: contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json
+          CONTRACT_KEY: contracts/transacciones/empatia/transcripciones/bdo/sac/transcripcion.json
           CORE_CONFIG_KEY: params/genesys/api/core.json
       Policies:
         - Statement:

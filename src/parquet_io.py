@@ -18,10 +18,13 @@ doesn't offer that, so this groups the rows by distinct partition-column
 combinations manually (SELECT DISTINCT, then one COPY ... WHERE ... per
 group) instead of a single PARTITION_BY COPY.
 
-DuckDB (not pandas/pyarrow/fastparquet) does the ingestion, dedup, and
-parquet write. DuckDB's read_json_auto needs a real file, not an
-in-memory list, so the mapped rows are staged to a local temp NDJSON file
-first; the resulting parquet file(s) are then uploaded to S3.
+DuckDB (not pandas/pyarrow/fastparquet) does the ingestion and parquet
+write. DuckDB's read_json_auto needs a real file, not an in-memory list,
+so the mapped rows are staged to a local temp NDJSON file first; the
+resulting parquet file(s) are then uploaded to S3. Dedup is NOT done here
+-- it happens once on the business rows in transform.py, before they're
+split into output_core/output_atts, since output_atts rows don't carry
+the dedup key column at all.
 """
 
 import json
@@ -74,30 +77,6 @@ def _build_type_cast_sql(source_sql: str, column_types: dict[str, str]) -> str:
     return f"SELECT * EXCLUDE ({exclude_list}), {cast_list} FROM {source_sql}"
 
 
-def _build_dedup_sql(source_sql: str, dedup: Optional[dict]) -> str:
-    if not dedup or not dedup.get("enabled"):
-        return source_sql
-
-    record_key = dedup.get("record_key", [])
-    if not record_key:
-        return source_sql
-
-    partition_clause = ", ".join(_quote_ident(c) for c in record_key)
-
-    order_by = dedup.get("order_by", [])
-    order_type = dedup.get("order_type", [])
-    order_terms = []
-    for i, col in enumerate(order_by):
-        direction = "DESC" if i < len(order_type) and order_type[i].lower() == "desc" else "ASC"
-        order_terms.append(f"{_quote_ident(col)} {direction}")
-    order_clause = ", ".join(order_terms) if order_terms else "1"
-
-    return (
-        f"SELECT * FROM ({source_sql}) "
-        f"QUALIFY ROW_NUMBER() OVER (PARTITION BY {partition_clause} ORDER BY {order_clause}) = 1"
-    )
-
-
 def write_hive_parquet(
     s3_client,
     rows: list[dict],
@@ -105,18 +84,23 @@ def write_hive_parquet(
     prefix: str,
     partition_cols: Optional[list[str]] = None,
     column_types: Optional[dict[str, str]] = None,
-    dedup: Optional[dict] = None,
+    filename_prefix: str = "part",
 ) -> list[str]:
     """Returns the list of object keys written."""
     if not rows:
         return []
 
     partition_cols = [c for c in (partition_cols or []) if c in rows[0]]
+    # Callers may pass a broader column_types mapping than what these
+    # specific rows actually carry (e.g. the contract's full set of
+    # technical column types, reused across two different output shapes)
+    # -- only cast columns that actually exist here.
+    column_types = {k: v for k, v in (column_types or {}).items() if k in rows[0]}
     prefix = prefix.rstrip("/")
 
     now = datetime.now(timezone.utc)
     date_path = f"year={now.year:04d}/month={now.month:02d}/day={now.day:02d}"
-    filename = f"transcripciones_{now.strftime('%Y%m%dT%H%M%SZ')}.parquet"
+    filename = f"{filename_prefix}_{now.strftime('%Y%m%dT%H%M%SZ')}.parquet"
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         ndjson_path = os.path.join(tmp_dir, "rows.jsonl")
@@ -125,16 +109,15 @@ def write_hive_parquet(
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
         source_sql = f"read_json_auto({_quote_literal(ndjson_path)})"
-        source_sql = _build_type_cast_sql(source_sql, column_types or {})
-        source_sql = _build_dedup_sql(source_sql, dedup)
+        source_sql = _build_type_cast_sql(source_sql, column_types)
 
         written_keys = []
         with duckdb.connect() as con:
-            con.execute(f"CREATE TEMP TABLE deduped AS {source_sql}")
+            con.execute(f"CREATE TEMP TABLE staged AS {source_sql}")
 
             if partition_cols:
                 ident_list = ", ".join(_quote_ident(c) for c in partition_cols)
-                combos = con.execute(f"SELECT DISTINCT {ident_list} FROM deduped").fetchall()
+                combos = con.execute(f"SELECT DISTINCT {ident_list} FROM staged").fetchall()
                 exclude_clause = f" EXCLUDE ({ident_list})"
             else:
                 combos = [()]
@@ -158,7 +141,7 @@ def write_hive_parquet(
 
                 local_path = os.path.join(tmp_dir, f"part_{i}.parquet")
                 copy_sql = (
-                    f"COPY (SELECT *{exclude_clause} FROM deduped{where_clause}) "
+                    f"COPY (SELECT *{exclude_clause} FROM staged{where_clause}) "
                     f"TO {_quote_literal(local_path)} (FORMAT PARQUET)"
                 )
                 con.execute(copy_sql, params)

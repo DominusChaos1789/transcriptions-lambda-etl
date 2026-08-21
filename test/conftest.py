@@ -12,7 +12,7 @@ RESOURCES_BUCKET = f"{ENV_PREFIX}resources"
 LANDING_BUCKET = f"{ENV_PREFIX}providers-landing"
 REFINED_BUCKET = f"{ENV_PREFIX}refined"
 
-CONTRACT_KEY = "contracts/transacciones/empatia/transcripciones/bdo_sac_structure.json"
+CONTRACT_KEY = "contracts/transacciones/empatia/transcripciones/bdo/sac/transcripcion.json"
 CORE_CONFIG_KEY = "params/genesys/api/core.json"
 UNITARY_KEY = "params/genesys/api/unitary.json"
 SOURCE_PREFIX = "external/datanexa/transacciones/empatia/transcripciones/BDO"
@@ -45,7 +45,7 @@ def aws(aws_credentials):
         s3.put_object(
             Bucket=RESOURCES_BUCKET,
             Key=CONTRACT_KEY,
-            Body=(FIXTURES_DIR / "bdo_sac_structure.json").read_bytes(),
+            Body=(FIXTURES_DIR / "transcripcion.json").read_bytes(),
         )
         s3.put_object(
             Bucket=RESOURCES_BUCKET,
